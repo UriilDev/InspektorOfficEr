@@ -14,14 +14,14 @@ jobs:
       run:
         shell: ${{ matrix.shell }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build is up to date (src -> Inspektor.ps1)
         run: ./build.ps1 -Check
 
       - name: Install test tools
         run: |
-          Install-Module Pester -MinimumVersion 5.5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          Install-Module Pester -RequiredVersion 5.7.1 -Force -SkipPublisherCheck -Scope CurrentUser
           Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
 
       - name: PSScriptAnalyzer (errors fail the build)
@@ -32,9 +32,11 @@ jobs:
 
       - name: Pester
         run: |
-          Import-Module Pester -MinimumVersion 5.5.0
+          Import-Module Pester -RequiredVersion 5.7.1
           $c = New-PesterConfiguration
           $c.Run.Path = './tests'
           $c.Run.Exit = $true
           $c.Output.Verbosity = 'Detailed'
+          $c.Output.StackTraceVerbosity = 'Firstline'
+          $c.Output.CIFormat = 'GithubActions'
           Invoke-Pester -Configuration $c
