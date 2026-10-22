@@ -8,6 +8,7 @@ if (-not (Cfg 'features.excel' $true))        { $SkipExcel = [switch]$true }
 if (-not (Cfg 'features.hopToDeskCli' $true)) { $NoHopCli  = [switch]$true }
 if (-not (Cfg 'passport.askIfMissing' $true)) { $NoPrompt  = [switch]$true }
 
+# -Diagnose collects the full debug log (also keeps the console verbose)
 # paths (drive letter is detected from the script location)
 $Drive   = Split-Path -Qualifier $Root
 $OutDir  = RootPath ([string](Cfg 'paths.reportsDir' 'Raports'))

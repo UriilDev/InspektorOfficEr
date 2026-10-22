@@ -30,21 +30,21 @@ function KvList($pairs) {
 }
 
 function New-InspectorReport($path) {
-    $cs   = Get-CimInstance Win32_ComputerSystem
-    $os   = Get-CimInstance Win32_OperatingSystem
-    $bb   = Get-CimInstance Win32_BaseBoard
-    $bios = Get-CimInstance Win32_BIOS
+    $cs   = Get-CimSafe Win32_ComputerSystem
+    $os   = Get-CimSafe Win32_OperatingSystem
+    $bb   = Get-CimSafe Win32_BaseBoard
+    $bios = Get-CimSafe Win32_BIOS
     $skipDisk = -1
-    try { $skipDisk = (Get-Partition -DriveLetter $Drive.TrimEnd(':') | Get-Disk).Number } catch { }
+    try { $skipDisk = (Get-Partition -DriveLetter $Drive.TrimEnd(':') | Get-Disk).Number } catch { Write-Log DEBUG "report: cannot tell which disk is the USB drive: $($_.Exception.Message)" }
     $up = (Get-Date) - $os.LastBootUpTime
     $checks = New-Object System.Collections.ArrayList
     $add = { param($lvl, $txt) [void]$checks.Add([pscustomobject]@{ L = $lvl; T = $txt }) }
 
     # ---- hardware ----
-    $cpuRows = @(Get-CimInstance Win32_Processor)
+    $cpuRows = @(Get-CimSafe Win32_Processor)
     $cpuName = ($cpuRows | Select-Object -First 1).Name -replace '\s+', ' '
     $cpu = $cpuRows | Select-Object @{n = (U '\u041f\u0440\u043e\u0446\u0435\u0441\u0441\u043e\u0440'); e = { $_.Name -replace '\s+', ' ' } }, @{n = (U '\u042f\u0434\u0435\u0440'); e = { $_.NumberOfCores } }, @{n = (U '\u041f\u043e\u0442\u043e\u043a\u043e\u0432'); e = { $_.NumberOfLogicalProcessors } }, @{n = (U '\u041c\u0413\u0446'); e = { $_.MaxClockSpeed } }
-    $mem = @(Get-CimInstance Win32_PhysicalMemory)
+    $mem = @(Get-CimSafe Win32_PhysicalMemory)
     $ramTotal = [math]::Round($cs.TotalPhysicalMemory / 1GB, 1)
     $ram = $mem | Select-Object @{n = (U '\u0421\u043b\u043e\u0442'); e = { $_.BankLabel } }, @{n = (U '\u041f\u0440\u043e\u0438\u0437\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c'); e = { $_.Manufacturer } }, @{n = (U '\u041f\u0430\u0440\u0442-\u043d\u043e\u043c\u0435\u0440'); e = { $_.PartNumber } }, @{n = (U '\u0413\u0411'); e = { [math]::Round($_.Capacity / 1GB, 1) } }, @{n = (U '\u041c\u0413\u0446'); e = { $_.Speed } }
     $dsk = $null
@@ -52,10 +52,10 @@ function New-InspectorReport($path) {
         $dsk = @(Get-PhysicalDisk -ErrorAction Stop | Where-Object { [int]$_.DeviceId -ne $skipDisk } | Select-Object @{n = (U '\u041c\u043e\u0434\u0435\u043b\u044c'); e = { $_.FriendlyName } }, @{n = (U '\u0422\u0438\u043f'); e = { $_.MediaType } }, @{n = (U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'); e = { $_.HealthStatus } }, @{n = (U '\u0413\u0411'); e = { [math]::Round($_.Size / 1GB) } }, @{n = (U '\u0428\u0438\u043d\u0430'); e = { $_.BusType } })
         foreach ($d in $dsk) { if ("$($d.(U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'))" -notmatch 'Healthy|^$') { & $add 'bad' ((U '\u041d\u0430\u043a\u043e\u043f\u0438\u0442\u0435\u043b\u044c \u0441\u043e\u043e\u0431\u0449\u0430\u0435\u0442 \u043e \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u0435: ') + $d.(U '\u041c\u043e\u0434\u0435\u043b\u044c')) } }
     } catch {
-        $dsk = @(Get-CimInstance Win32_DiskDrive | Where-Object { $_.Index -ne $skipDisk } | Select-Object @{n = (U '\u041c\u043e\u0434\u0435\u043b\u044c'); e = { $_.Model } }, @{n = (U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'); e = { $_.Status } }, @{n = (U '\u0413\u0411'); e = { [math]::Round($_.Size / 1GB) } }, @{n = (U '\u0428\u0438\u043d\u0430'); e = { $_.InterfaceType } })
+        $dsk = @(Get-CimSafe Win32_DiskDrive | Where-Object { $_.Index -ne $skipDisk } | Select-Object @{n = (U '\u041c\u043e\u0434\u0435\u043b\u044c'); e = { $_.Model } }, @{n = (U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'); e = { $_.Status } }, @{n = (U '\u0413\u0411'); e = { [math]::Round($_.Size / 1GB) } }, @{n = (U '\u0428\u0438\u043d\u0430'); e = { $_.InterfaceType } })
         foreach ($d in $dsk) { if ("$($d.(U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'))" -notmatch '^OK$|^$') { & $add 'bad' ((U '\u041d\u0430\u043a\u043e\u043f\u0438\u0442\u0435\u043b\u044c \u0441\u043e\u043e\u0431\u0449\u0430\u0435\u0442 \u043e \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u0435: ') + $d.(U '\u041c\u043e\u0434\u0435\u043b\u044c')) } }
     }
-    $vols = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3')
+    $vols = @(Get-CimSafe Win32_LogicalDisk -Filter 'DriveType=3')
     $volHtml = ''
     foreach ($v in $vols) {
         if (-not $v.Size) { continue }
@@ -70,18 +70,18 @@ function New-InspectorReport($path) {
             else { & $add 'ok' ((U '\u041d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435 \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u043c\u0435\u0441\u0442\u0430: \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u043e ') + $freePct + '%') }
         }
     }
-    $gpu = Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notmatch 'Parsec|Virtual|Remote|Mirror|Basic' } | Select-Object @{n = (U '\u0412\u0438\u0434\u0435\u043e\u0430\u0434\u0430\u043f\u0442\u0435\u0440'); e = { $_.Name } }, @{n = (U '\u0414\u0440\u0430\u0439\u0432\u0435\u0440'); e = { $_.DriverVersion } }
-    $net = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=true' | Select-Object @{n = (U '\u0410\u0434\u0430\u043f\u0442\u0435\u0440'); e = { $_.Description } }, @{n = 'MAC'; e = { $_.MACAddress } }, @{n = 'IP'; e = { $_.IPAddress -join ', ' } }, @{n = (U '\u0428\u043b\u044e\u0437'); e = { $_.DefaultIPGateway -join ', ' } }
-    $bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object @{n = (U '\u0411\u0430\u0442\u0430\u0440\u0435\u044f'); e = { $_.Name } }, @{n = (U '\u0417\u0430\u0440\u044f\u0434, %'); e = { $_.EstimatedChargeRemaining } }
+    $gpu = Get-CimSafe Win32_VideoController | Where-Object { $_.Name -notmatch 'Parsec|Virtual|Remote|Mirror|Basic' } | Select-Object @{n = (U '\u0412\u0438\u0434\u0435\u043e\u0430\u0434\u0430\u043f\u0442\u0435\u0440'); e = { $_.Name } }, @{n = (U '\u0414\u0440\u0430\u0439\u0432\u0435\u0440'); e = { $_.DriverVersion } }
+    $net = Get-CimSafe Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=true' | Select-Object @{n = (U '\u0410\u0434\u0430\u043f\u0442\u0435\u0440'); e = { $_.Description } }, @{n = 'MAC'; e = { $_.MACAddress } }, @{n = 'IP'; e = { $_.IPAddress -join ', ' } }, @{n = (U '\u0428\u043b\u044e\u0437'); e = { $_.DefaultIPGateway -join ', ' } }
+    $bat = Get-CimSafe Win32_Battery -ErrorAction SilentlyContinue | Select-Object @{n = (U '\u0411\u0430\u0442\u0430\u0440\u0435\u044f'); e = { $_.Name } }, @{n = (U '\u0417\u0430\u0440\u044f\u0434, %'); e = { $_.EstimatedChargeRemaining } }
 
     # ---- checks ----
     if ($up.Days -gt 30) { & $add 'warn' ((U '\u041a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0430\u043b\u0441\u044f ') + $up.Days + (U ' \u0434\u043d., \u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0443\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0430')) } else { & $add 'ok' ((U '\u0412\u0440\u0435\u043c\u044f \u0440\u0430\u0431\u043e\u0442\u044b \u0431\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438: ') + $up.Days + (U ' \u0434\u043d.')) }
     if ($ramTotal -lt 4) { & $add 'warn' ((U '\u041c\u0430\u043b\u043e \u043e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438: ') + $ramTotal + (U ' \u0413\u0411')) } else { & $add 'ok' ((U '\u041e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438 \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e: ') + $ramTotal + (U ' \u0413\u0411')) }
     if ($os.Caption -match 'Windows (7|8|Vista|XP)|2003|2008|Server 2012') { & $add 'bad' ((U '\u0423\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0430\u044f \u041e\u0421 \u0431\u0435\u0437 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438: ') + $os.Caption) } else { & $add 'ok' (U '\u041e\u0421 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044f \u043f\u0440\u043e\u0438\u0437\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u0435\u043c') }
-    $av = @(); try { $av = @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop | Select-Object -ExpandProperty displayName) } catch { }
+    $av = @(); try { $av = @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop | Select-Object -ExpandProperty displayName) } catch { Write-Log DEBUG "report: SecurityCenter2 unavailable: $($_.Exception.Message)" }
     if (-not $av -and ((Get-Service WinDefend -ErrorAction SilentlyContinue).Status -eq 'Running')) { $av = @('Windows Defender') }
     if ($av) { & $add 'ok' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441: ') + (($av | Select-Object -Unique) -join ', ')) } else { & $add 'warn' (U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u043d\u0435 \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d') }
-    $fwOff = $null; try { $fwOff = @(Get-NetFirewallProfile -ErrorAction Stop | Where-Object { "$($_.Enabled)" -eq 'False' } | ForEach-Object { $_.Name }) } catch { }
+    $fwOff = $null; try { $fwOff = @(Get-NetFirewallProfile -ErrorAction Stop | Where-Object { "$($_.Enabled)" -eq 'False' } | ForEach-Object { $_.Name }) } catch { Write-Log DEBUG "report: Get-NetFirewallProfile unavailable: $($_.Exception.Message)" }
     if ($null -ne $fwOff) { if ($fwOff.Count) { & $add 'warn' ((U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d \u0432 \u043f\u0440\u043e\u0444\u0438\u043b\u044f\u0445: ') + ($fwOff -join ', ')) } else { & $add 'ok' (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows \u0432\u043a\u043b\u044e\u0447\u0451\u043d') } }
     $nOk = @($checks | Where-Object L -eq 'ok').Count; $nWarn = @($checks | Where-Object L -eq 'warn').Count; $nBad = @($checks | Where-Object L -eq 'bad').Count
     $checkHtml = '<ul class="checks">' + (($checks | Sort-Object @{e = { @{ bad = 0; warn = 1; ok = 2 }[$_.L] } } | ForEach-Object { '<li class="' + $_.L + '"><i></i><span>' + (Enc $_.T) + '</span></li>' }) -join '') + '</ul>'

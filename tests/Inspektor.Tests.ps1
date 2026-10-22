@@ -11,7 +11,7 @@ BeforeAll {
     $script:Src  = Join-Path $script:Repo 'src'
     $script:Cfg  = $null
     $Root = $script:Repo
-    foreach ($m in 'Core', 'Report', 'Collectors', 'Passport', 'Xlsx', 'Inventory') {
+    foreach ($m in 'Core', 'Log', 'Report', 'Collectors', 'Passport', 'Xlsx', 'Inventory') {
         . (Join-Path $script:Src ($m + '.ps1'))
     }
     function Get-RepoScripts {
@@ -51,11 +51,11 @@ Describe 'Repository hygiene' {
         $e = $null; $t = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Repo 'Inspektor.ps1'), [ref]$t, [ref]$e)
         $names = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath }) | Sort-Object
-        ($names -join ',') | Should -Be 'NoHopCli,NoPrompt,SkipExcel,SkipReport'
+        ($names -join ',') | Should -Be 'Diagnose,NoHopCli,NoPrompt,SkipExcel,SkipReport'
     }
     It 'config.json is valid JSON with the expected sections' {
         $c = [IO.File]::ReadAllText((Join-Path $script:Repo 'config.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json
-        foreach ($s in 'paths', 'features', 'passport', 'excel', 'freeze', 'reports', 'backup', 'ui') {
+        foreach ($s in 'paths', 'features', 'passport', 'excel', 'freeze', 'reports', 'backup', 'ui', 'log', 'timeouts') {
             $c.PSObject.Properties.Name | Should -Contain $s
         }
         @($c.excel.headers).Count | Should -Be 11
@@ -107,6 +107,81 @@ Describe 'Core: configuration' {
     It 'RootPath keeps absolute paths' {
         $abs = [IO.Path]::GetFullPath((Join-Path $TestDrive 'x'))
         (RootPath $abs) | Should -Be $abs
+    }
+}
+
+Describe 'Log' {
+    BeforeEach { $script:Cfg = $null; $Diagnose = $false; $script:LogBuf.Clear() }
+
+    It 'keeps every level in the buffer' {
+        Write-Log DEBUG 'dbg' 6>$null; Write-Log WARN 'wrn' 6>$null
+        @($script:LogBuf).Count | Should -Be 2
+        $script:LogBuf[0] | Should -Match '\[DEBUG\] dbg'
+    }
+    It 'does not print DEBUG at the default level' {
+        $o = Write-Log DEBUG 'hidden' 6>&1 | Out-String
+        $o | Should -Not -Match 'hidden'
+    }
+    It 'prints WARN at the default level' {
+        $o = Write-Log WARN 'shown' 6>&1 | Out-String
+        $o | Should -Match 'shown'
+    }
+    It 'prints DEBUG with -Diagnose' {
+        $Diagnose = $true
+        $o = Write-Log DEBUG 'verbose' 6>&1 | Out-String
+        $o | Should -Match 'verbose'
+    }
+    It 'honours log.level from config.json' {
+        $script:Cfg = '{"log":{"level":"ERROR"}}' | ConvertFrom-Json
+        $o = Write-Log WARN 'quiet' 6>&1 | Out-String
+        $o | Should -Not -Match 'quiet'
+    }
+    It 'Save-DiagnoseLog writes _debug\diagnose_*.txt with the log' {
+        $Drive = ''; $SkipReport = $false; $SkipExcel = $false; $NoHopCli = $false; $NoPrompt = $false
+        Write-Log INFO 'marker-line' 6>$null
+        $f = Save-DiagnoseLog $TestDrive
+        $f | Should -Match 'diagnose_'
+        [IO.File]::ReadAllText($f) | Should -Match 'marker-line'
+    }
+}
+
+Describe 'Invoke-External' {
+    It 'captures output and exit code' {
+        if ($script:IsWin) { $r = Invoke-External 'cmd.exe' '/c echo hello' 10 } else { $r = Invoke-External '/bin/sh' '-c "echo hello"' 10 }
+        $r.TimedOut | Should -BeFalse
+        $r.ExitCode | Should -Be 0
+        $r.Stdout.Trim() | Should -Be 'hello'
+    }
+    It 'kills a process that exceeds the timeout' {
+        if ($script:IsWin) { $r = Invoke-External 'ping.exe' '-n 30 127.0.0.1' 1 } else { $r = Invoke-External '/bin/sh' '-c "sleep 30"' 1 }
+        $r.TimedOut | Should -BeTrue
+        $r.ExitCode | Should -BeNullOrEmpty
+    }
+    It 'does not throw when the program does not exist' {
+        $r = Invoke-External (Join-Path $TestDrive 'no_such_program.exe') '' 2
+        $r.Error | Should -Not -BeNullOrEmpty
+    }
+}
+
+Describe 'Collectors: error isolation' {
+    It 'Tm returns "none" instead of throwing when a collector fails' {
+        $r = Tm 'Broken' { throw 'boom' } 6>$null
+        $r | Should -Be $NO
+    }
+    It 'Tm passes the value through on success' {
+        (Tm 'Ok' { 'value' } 6>$null) | Should -Be 'value'
+    }
+    It 'Get-AnyDeskId reads the ID from system.conf' {
+        $env:ProgramData = Join-Path $TestDrive 'pd'
+        New-Item -ItemType Directory -Force (Join-Path $env:ProgramData 'AnyDesk') | Out-Null
+        [IO.File]::WriteAllText((Join-Path $env:ProgramData 'AnyDesk\system.conf'), "ad.anynet.id=123456789`r`nad.other=1`r`n")
+        Mock Get-UserProfileDirs { @() }
+        (Get-AnyDeskId 6>$null) | Should -Be '123456789'
+    }
+    It 'Get-AnyDeskId returns "none" when nothing is installed' {
+        $env:ProgramData = Join-Path $TestDrive 'empty'; $env:APPDATA = Join-Path $TestDrive 'emptyroam'
+        Mock Get-UserProfileDirs { @() }
+        (Get-AnyDeskId 6>$null) | Should -Be $NO
     }
 }
 
