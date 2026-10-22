@@ -8,11 +8,11 @@ BeforeDiscovery {
 
 BeforeAll {
     $script:Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-    $script:Src  = Join-Path $script:Repo 'src'
+    $script:SrcDir = Join-Path $script:Repo 'src'   # NOT $script:Src: Core.ps1 owns that name
     $script:Cfg  = $null
     $Root = $script:Repo
     foreach ($m in 'Core', 'Log', 'Report', 'Collectors', 'Passport', 'Xlsx', 'Inventory') {
-        . (Join-Path $script:Src ($m + '.ps1'))
+        . (Join-Path $script:SrcDir ($m + '.ps1'))
     }
     function Get-RepoScripts {
         Get-ChildItem $script:Repo -Recurse -Include *.ps1, *.psm1, *.psd1 -File |
@@ -307,7 +307,8 @@ Describe 'Excel: OpenXML workbook' {
     It 'makes a backup of an existing workbook' {
         [void](Update-InventoryXlsx $script:Book (New-Rec 'PC-001') $NO)
         [void](Update-InventoryXlsx $script:Book (New-Rec 'PC-001') $NO)
-        @(Get-ChildItem (Join-Path $OutDir '_backup') -Filter *.xlsx).Count | Should -Be 1
+        $base = [IO.Path]::GetFileNameWithoutExtension($script:Book)   # unique per test, the _backup folder is shared by the whole Describe
+        @(Get-ChildItem (Join-Path $OutDir '_backup') -Filter ($base + '_*.xlsx')).Count | Should -Be 1
     }
     It 'fails (so the caller can save a pending row) when the file is locked' {
         [void](Update-InventoryXlsx $script:Book (New-Rec 'PC-001') $NO)
