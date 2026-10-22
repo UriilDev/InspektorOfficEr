@@ -1,7 +1,7 @@
 #requires -Version 5.1
 # build.ps1 : assembles src\*.ps1 into ONE portable Inspektor.ps1 (what goes onto the USB drive).
 #   .\build.ps1            -> writes Inspektor.ps1 next to this script
-#   .\build.ps1 -Check     -> builds in memory and fails (exit 1) if Inspektor.ps1 differs (CI drift check)
+#   .\build.ps1 -Check     -> builds in memory and fails (exit 1) if Inspektor.ps1 differs (drift check)
 # The output is pure ASCII with CRLF line endings. Non-ASCII characters in sources are an error:
 # write Cyrillic as \uXXXX through the U '...' helper.
 param([switch]$Check, [string]$OutFile)
@@ -11,7 +11,7 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $OutFile) { $OutFile = Join-Path $here 'Inspektor.ps1' }
 
 # order matters: Core and Context first, Main last
-$parts = 'Core', 'Log', 'Context', 'Report', 'Collectors', 'Passport', 'Xlsx', 'Inventory', 'Main'
+$parts = 'Core', 'Log', 'Context', 'Checks', 'Changes', 'Report', 'Collectors', 'Passport', 'Xlsx', 'Inventory', 'Main'
 
 $header = @'
 #requires -Version 5.1
@@ -42,7 +42,7 @@ $errs = $null; $tok = $null
 if ($errs -and $errs.Count) { $errs | ForEach-Object { Write-Host ("parse error line {0}: {1}" -f $_.Extent.StartLineNumber, $_.Message) -ForegroundColor Red }; exit 2 }
 
 if ($Check) {
-    # content drift only: line endings are enforced separately (tests + .gitattributes), so CRLF/LF differences do not count here
+    # content drift only: line endings are enforced separately (.gitattributes), so CRLF/LF differences do not count here
     $cur = ''; if (Test-Path -LiteralPath $OutFile) { $cur = [IO.File]::ReadAllText($OutFile) }
     $al = @(($cur -replace "`r`n", "`n") -split "`n"); $bl = @(($text -replace "`r`n", "`n") -split "`n")
     $i = 0; $n = [math]::Min($al.Count, $bl.Count)

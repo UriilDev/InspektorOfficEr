@@ -38,7 +38,6 @@ function Invoke-Inventory {
     Write-Host "  AnyDesk   : $($rec.AnyDesk)  $(Via $script:Src.AnyDesk)"
     Write-Host "  HopToDesk : $($rec.Hop)  $(Via $script:Src.Hop)"
     Write-Host "  Freeze    : $($rec.Freeze)  $(Via $script:Src.Freeze)"
-    try { $rec | ConvertTo-Json | Out-File (Join-Path $OutDir '_last_inventory.json') -Encoding utf8 } catch { }
 
     $xl = Find-XlsxPath
     foreach ($c in @($Out)) {
@@ -50,13 +49,15 @@ function Invoke-Inventory {
             break
         }
     }
+    try { $rec | ConvertTo-Json | Out-File (Join-Path $OutDir '_last_inventory.json') -Encoding utf8 } catch { }      # after the report link is known
     try {
         $res = Update-InventoryXlsx $xl $rec $NO
         Write-Host "  Excel     : $res  [$xl]" -ForegroundColor Green
         return 0
     } catch {
         Write-Host "  Excel NOT updated: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Host '  (if the file is open in Excel - close it and run again)' -ForegroundColor Yellow
+        if ($_.Exception.Message -match 'protected|merged') { Write-Host '  (fix the table as described above and run again; nothing was changed in the workbook)' -ForegroundColor Yellow }
+        else { Write-Host '  (if the file is open in Excel - close it and run again; the workbook was not changed)' -ForegroundColor Yellow }
         $pf = Save-PendingRow $rec
         Write-Host "  row saved to: $pf" -ForegroundColor Yellow
         return 5

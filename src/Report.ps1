@@ -20,10 +20,18 @@ function Card([string]$title, [string]$icon, [string]$body, [string]$cls = '') {
 function HtmlTbl($rows, [string]$id = '') {
     $rows = @($rows | Where-Object { $_ })
     if (-not $rows) { return '<p class="muted">' + (U '\u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445') + '</p>' }
-    $cols = $rows[0].PSObject.Properties.Name
-    $h = '<div class="scroll"><table class="tbl"' + $(if ($id) { ' id="' + $id + '"' } else { '' }) + '><thead><tr>' + (($cols | ForEach-Object { '<th>' + (Enc $_) + '</th>' }) -join '') + '</tr></thead><tbody>'
-    foreach ($r in $rows) { $h += '<tr>' + (($cols | ForEach-Object { '<td>' + (Enc $r.$_) + '</td>' }) -join '') + '</tr>' }
-    $h + '</tbody></table></div>'
+    $cols = @($rows[0].PSObject.Properties.Name)
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.Append('<div class="scroll"><table class="tbl"' + $(if ($id) { ' id="' + $id + '"' } else { '' }) + '><thead><tr>')
+    foreach ($c in $cols) { [void]$sb.Append('<th scope="col">' + (Enc $c) + '</th>') }
+    [void]$sb.Append('</tr></thead><tbody>')
+    foreach ($r in $rows) {       # StringBuilder: 500+ rows stay fast
+        [void]$sb.Append('<tr>')
+        foreach ($c in $cols) { [void]$sb.Append('<td>' + (Enc $r.$c) + '</td>') }
+        [void]$sb.Append('</tr>')
+    }
+    [void]$sb.Append('</tbody></table></div>')
+    $sb.ToString()
 }
 function KvList($pairs) {
     '<dl class="kv">' + (($pairs.GetEnumerator() | Where-Object { "$($_.Value)".Trim() } | ForEach-Object { '<div><dt>' + (Enc $_.Key) + '</dt><dd>' + (Enc $_.Value) + '</dd></div>' }) -join '') + '</dl>'
@@ -36,9 +44,10 @@ function New-InspectorReport($path) {
     $bios = Get-CimSafe Win32_BIOS
     $skipDisk = -1
     try { $skipDisk = (Get-Partition -DriveLetter $Drive.TrimEnd(':') | Get-Disk).Number } catch { Write-Log DEBUG "report: cannot tell which disk is the USB drive: $($_.Exception.Message)" }
-    $up = (Get-Date) - $os.LastBootUpTime
+    $up = [TimeSpan]::FromDays(99999); if ($os.LastBootUpTime) { $up = (Get-Date) - $os.LastBootUpTime }      # unknown boot time (WMI failed) must not look like a long uptime
     $checks = New-Object System.Collections.ArrayList
-    $add = { param($lvl, $txt) [void]$checks.Add([pscustomobject]@{ L = $lvl; T = $txt }) }
+    $add = { param($lvl, $txt) [void]$checks.Add([pscustomobject]@{ L = $lvl; T = $txt; A = '' }) }
+    $thrBad = [int](Cfg 'checks.diskFreePctBad' 10); $thrWarn = [int](Cfg 'checks.diskFreePctWarn' 20)      # volume bars use the same thresholds as the quick check
 
     # ---- hardware ----
     $cpuRows = @(Get-CimSafe Win32_Processor)
@@ -61,34 +70,28 @@ function New-InspectorReport($path) {
         if (-not $v.Size) { continue }
         $usedPct = [int][math]::Round(100 * ($v.Size - $v.FreeSpace) / $v.Size)
         $freePct = 100 - $usedPct
-        $cls = if ($freePct -lt 10) { 'bad' } elseif ($freePct -lt 20) { 'warn' } else { 'ok' }
+        $cls = if ($freePct -lt $thrBad) { 'bad' } elseif ($freePct -lt $thrWarn) { 'warn' } else { 'ok' }
         $lbl = (Enc $v.DeviceID) + $(if ($v.VolumeName) { ' &middot; ' + (Enc $v.VolumeName) } else { '' })
         $volHtml += '<div class="vol"><div class="vol-h"><b>' + $lbl + '</b><span>' + (Enc $v.FileSystem) + ' &middot; ' + (U '\u0441\u0432\u043e\u0431\u043e\u0434\u043d\u043e ') + [math]::Round($v.FreeSpace / 1GB) + ' / ' + [math]::Round($v.Size / 1GB) + ' ' + (U '\u0413\u0411') + '</span></div><div class="bar"><i class="' + $cls + '" style="width:' + $usedPct + '%"></i></div></div>'
-        if ($v.DeviceID -eq $env:SystemDrive) {
-            if ($freePct -lt 10) { & $add 'bad' ((U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a \u043f\u043e\u0447\u0442\u0438 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d: \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u043e ') + $freePct + '%') }
-            elseif ($freePct -lt 20) { & $add 'warn' ((U '\u041d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435 \u043c\u0430\u043b\u043e \u043c\u0435\u0441\u0442\u0430: \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u043e ') + $freePct + '%') }
-            else { & $add 'ok' ((U '\u041d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435 \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u043c\u0435\u0441\u0442\u0430: \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u043e ') + $freePct + '%') }
-        }
+        if ($v.DeviceID -eq $env:SystemDrive) { [void]$checks.Add((Get-SysDiskCheck $v)) }
     }
     $gpu = Get-CimSafe Win32_VideoController | Where-Object { $_.Name -notmatch 'Parsec|Virtual|Remote|Mirror|Basic' } | Select-Object @{n = (U '\u0412\u0438\u0434\u0435\u043e\u0430\u0434\u0430\u043f\u0442\u0435\u0440'); e = { $_.Name } }, @{n = (U '\u0414\u0440\u0430\u0439\u0432\u0435\u0440'); e = { $_.DriverVersion } }
     $net = Get-CimSafe Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=true' | Select-Object @{n = (U '\u0410\u0434\u0430\u043f\u0442\u0435\u0440'); e = { $_.Description } }, @{n = 'MAC'; e = { $_.MACAddress } }, @{n = 'IP'; e = { $_.IPAddress -join ', ' } }, @{n = (U '\u0428\u043b\u044e\u0437'); e = { $_.DefaultIPGateway -join ', ' } }
     $bat = Get-CimSafe Win32_Battery -ErrorAction SilentlyContinue | Select-Object @{n = (U '\u0411\u0430\u0442\u0430\u0440\u0435\u044f'); e = { $_.Name } }, @{n = (U '\u0417\u0430\u0440\u044f\u0434, %'); e = { $_.EstimatedChargeRemaining } }
 
-    # ---- checks ----
-    if ($up.Days -gt 30) { & $add 'warn' ((U '\u041a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0430\u043b\u0441\u044f ') + $up.Days + (U ' \u0434\u043d., \u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0443\u0435\u0442\u0441\u044f \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0430')) } else { & $add 'ok' ((U '\u0412\u0440\u0435\u043c\u044f \u0440\u0430\u0431\u043e\u0442\u044b \u0431\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438: ') + $up.Days + (U ' \u0434\u043d.')) }
-    if ($ramTotal -lt 4) { & $add 'warn' ((U '\u041c\u0430\u043b\u043e \u043e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438: ') + $ramTotal + (U ' \u0413\u0411')) } else { & $add 'ok' ((U '\u041e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438 \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e: ') + $ramTotal + (U ' \u0413\u0411')) }
-    if ($os.Caption -match 'Windows (7|8|Vista|XP)|2003|2008|Server 2012') { & $add 'bad' ((U '\u0423\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0430\u044f \u041e\u0421 \u0431\u0435\u0437 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438: ') + $os.Caption) } else { & $add 'ok' (U '\u041e\u0421 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044f \u043f\u0440\u043e\u0438\u0437\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u0435\u043c') }
-    $av = @(); try { $av = @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop | Select-Object -ExpandProperty displayName) } catch { Write-Log DEBUG "report: SecurityCenter2 unavailable: $($_.Exception.Message)" }
-    if (-not $av -and ((Get-Service WinDefend -ErrorAction SilentlyContinue).Status -eq 'Running')) { $av = @('Windows Defender') }
-    if ($av) { & $add 'ok' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441: ') + (($av | Select-Object -Unique) -join ', ')) } else { & $add 'warn' (U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u043d\u0435 \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d') }
-    $fwOff = $null; try { $fwOff = @(Get-NetFirewallProfile -ErrorAction Stop | Where-Object { "$($_.Enabled)" -eq 'False' } | ForEach-Object { $_.Name }) } catch { Write-Log DEBUG "report: Get-NetFirewallProfile unavailable: $($_.Exception.Message)" }
-    if ($null -ne $fwOff) { if ($fwOff.Count) { & $add 'warn' ((U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d \u0432 \u043f\u0440\u043e\u0444\u0438\u043b\u044f\u0445: ') + ($fwOff -join ', ')) } else { & $add 'ok' (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows \u0432\u043a\u043b\u044e\u0447\u0451\u043d') } }
+    # ---- checks (src\Checks.ps1: thresholds come from config.json "checks") ----
+    foreach ($c in @(Get-QuickChecks $os $up $ramTotal)) { if ($c) { [void]$checks.Add($c) } }
     $nOk = @($checks | Where-Object L -eq 'ok').Count; $nWarn = @($checks | Where-Object L -eq 'warn').Count; $nBad = @($checks | Where-Object L -eq 'bad').Count
-    $checkHtml = '<ul class="checks">' + (($checks | Sort-Object @{e = { @{ bad = 0; warn = 1; ok = 2 }[$_.L] } } | ForEach-Object { '<li class="' + $_.L + '"><i></i><span>' + (Enc $_.T) + '</span></li>' }) -join '') + '</ul>'
+    $checkHtml = (Get-CheckLead $checks) + (ConvertTo-CheckHtml $checks)
 
     # ---- software (from uninstall entries, system components and updates hidden) ----
     $sw = @(Get-Uninstall | Where-Object { $_.SystemComponent -ne 1 -and -not $_.ParentKeyName } |
         Sort-Object DisplayName | Select-Object -Property @{n = (U '\u041f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0430'); e = { $_.DisplayName } }, @{n = (U '\u0412\u0435\u0440\u0441\u0438\u044f'); e = { $_.DisplayVersion } }, @{n = (U '\u0418\u0437\u0434\u0430\u0442\u0435\u043b\u044c'); e = { $_.Publisher } } -Unique)
+
+    # ---- changes since the previous report of this PC ----
+    $oldSnap = Read-Snapshot
+    $curSnap = New-Snapshot $os $ramTotal $vols $dsk $sw
+    $chgHtml = Get-ChangesHtml $oldSnap $curSnap
 
     # ---- page ----
     $general = [ordered]@{}
@@ -103,6 +106,7 @@ function New-InspectorReport($path) {
     $stat = '<div class="stats"><div class="st ok"><b>' + $nOk + '</b><span>' + (U '\u0432 \u043d\u043e\u0440\u043c\u0435') + '</span></div><div class="st warn"><b>' + $nWarn + '</b><span>' + (U '\u0432\u043d\u0438\u043c\u0430\u043d\u0438\u0435') + '</span></div><div class="st bad"><b>' + $nBad + '</b><span>' + (U '\u043f\u0440\u043e\u0431\u043b\u0435\u043c\u044b') + '</span></div></div>'
 
     $body  = (Card (U '\u0411\u044b\u0441\u0442\u0440\u0430\u044f \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0430') 'pulse' ($stat + $checkHtml) 'wide')
+    $body += (Card (U '\u0427\u0442\u043e \u0438\u0437\u043c\u0435\u043d\u0438\u043b\u043e\u0441\u044c \u0441 \u043f\u0440\u043e\u0448\u043b\u043e\u0433\u043e \u0440\u0430\u0437\u0430') 'info' $chgHtml 'wide')
     $body += (Card (U '\u0421\u0438\u0441\u0442\u0435\u043c\u0430') 'info' (KvList $general))
     $body += (Card (U '\u041f\u0440\u043e\u0446\u0435\u0441\u0441\u043e\u0440') 'cpu' (HtmlTbl $cpu))
     $body += (Card ((U '\u041e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c') + " ($ramTotal " + (U '\u0413\u0411') + ')') 'ram' (HtmlTbl $ram))
@@ -110,7 +114,7 @@ function New-InspectorReport($path) {
     $body += (Card (U '\u0412\u0438\u0434\u0435\u043e\u0430\u0434\u0430\u043f\u0442\u0435\u0440') 'gpu' (HtmlTbl $gpu))
     $body += (Card (U '\u0421\u0435\u0442\u044c') 'net' (HtmlTbl $net))
     if ($bat) { $body += (Card (U '\u0411\u0430\u0442\u0430\u0440\u0435\u044f') 'pulse' (HtmlTbl $bat)) }
-    $body += (Card ((U '\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u043d\u044b\u0435 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u044b') + " ($($sw.Count))") 'apps' ('<input id="q" class="search" type="search" placeholder="' + (U '\u041f\u043e\u0438\u0441\u043a \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u044b...') + '">' + (HtmlTbl $sw 'sw')) 'wide')
+    $body += (Card ((U '\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u043d\u044b\u0435 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u044b') + " ($($sw.Count))") 'apps' ('<input id="q" class="search" type="search" aria-label="' + (U '\u041f\u043e\u0438\u0441\u043a \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u044b') + '" placeholder="' + (U '\u041f\u043e\u0438\u0441\u043a \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u044b...') + '">' + '<div id="qc" class="muted" aria-live="polite"></div>' + (HtmlTbl $sw 'sw')) 'wide long')
 
     $tpl = U @'
 <!DOCTYPE html>
@@ -146,21 +150,29 @@ function New-InspectorReport($path) {
 .foot{margin-top:26px;text-align:center;color:var(--mut);font-size:12px}.foot b{color:var(--ink)}
 @media(max-width:820px){.grid{grid-template-columns:1fr}.kv{grid-template-columns:1fr}.hero h1{font-size:26px}}
 @media print{body{background:#fff}.btns{display:none}.hero{box-shadow:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}.card{box-shadow:none;break-inside:avoid}}
-</style></head><body><div class="wrap">
+
+.lead{margin:0 0 12px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);border-left-width:5px;font-weight:600}.lead.bad{border-color:var(--bad)}.lead.warn{border-color:var(--warn)}.lead.ok{border-color:var(--ok)}
+.checks li{align-items:flex-start}.checks i{margin-top:6px}.lv{flex:none;min-width:78px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;padding-top:2px}.tx{min-width:0;overflow-wrap:anywhere}.act{display:block;color:var(--mut);margin-top:2px}
+.chg{margin:0;padding:0;list-style:none}.chg li{padding:7px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.chg li:last-child{border:0}.chg b{margin-right:6px}
+.btn:focus-visible,.search:focus-visible,a:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+#sw tr[hidden]{display:none}
+@media print{.search,#qc{display:none}.card.long{break-inside:auto}.tbl thead{display:table-header-group}.tbl tr{break-inside:avoid}}
+</style></head><body><main class="wrap">
 <div class="top"><div class="brand"><svg viewBox="0 0 48 48"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4f46e5"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#g)"/><rect x="9" y="11" width="24" height="17" rx="3" fill="none" stroke="#fff" stroke-width="2.6"/><path d="M15 33h12" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/><circle cx="32" cy="30" r="7" fill="#fff" fill-opacity=".18" stroke="#fff" stroke-width="2.6"/><path d="M37 35l5 5" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg><div>InspektorOfficEr<small>PC INSPECTION REPORT</small></div></div>
 <div class="btns"><button class="btn" id="cp" data-s="{{SUMMARY}}">{{B_COPY}}</button><button class="btn" id="th">{{B_THEME}}</button><button class="btn" onclick="window.print()">{{B_PRINT}}</button></div></div>
 <div class="hero"><h1>{{PC}}</h1><p>{{SUB}}</p><div class="chips">{{CHIPS}}</div></div>
 <div class="grid">{{BODY}}</div>
 <div class="foot">{{GENERATED}} {{DATE}} &middot; <b>InspektorOfficEr</b> v{{VER}}</div>
-</div>
+</main>
 <script>
 (function(){var r=document.documentElement;try{var t=localStorage.getItem("ioe-theme");if(t)r.setAttribute("data-theme",t)}catch(e){}
 document.getElementById("th").onclick=function(){var d=r.getAttribute("data-theme");if(!d)d=window.matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";var n=d==="dark"?"light":"dark";r.setAttribute("data-theme",n);try{localStorage.setItem("ioe-theme",n)}catch(e){}};
-var q=document.getElementById("q");if(q)q.oninput=function(){var v=q.value.toLowerCase();document.querySelectorAll("#sw tbody tr").forEach(function(tr){tr.classList.toggle("hide",tr.textContent.toLowerCase().indexOf(v)<0)})};
+var q=document.getElementById("q");if(q){var rows=[].slice.call(document.querySelectorAll("#sw tbody tr")),idx=rows.map(function(tr){return tr.textContent.toLowerCase()}),tm=0,qc=document.getElementById("qc");q.oninput=function(){clearTimeout(tm);tm=setTimeout(function(){var v=q.value.toLowerCase().trim(),n=0;rows.forEach(function(tr,i){var h=v!==""&&idx[i].indexOf(v)<0;if(h!==tr.hidden)tr.hidden=h;if(!h)n++});if(qc)qc.textContent=v?n+" / "+rows.length:""},120)}}
 var c=document.getElementById("cp");c.onclick=function(){var s=c.getAttribute("data-s"),o=c.textContent;function ok(){c.textContent="OK";setTimeout(function(){c.textContent=o},1200)}
 if(navigator.clipboard){navigator.clipboard.writeText(s).then(ok,ok)}else{var a=document.createElement("textarea");a.value=s;document.body.appendChild(a);a.select();try{document.execCommand("copy")}catch(e){}document.body.removeChild(a);ok()}};})();
 </script></body></html>
 '@
     $doc = $tpl.Replace('{{PC}}', (Enc $env:COMPUTERNAME)).Replace('{{SUB}}', (Enc "$($cs.Manufacturer) $($cs.Model)")).Replace('{{CHIPS}}', $chips).Replace('{{BODY}}', $body).Replace('{{SUMMARY}}', (Enc $summary)).Replace('{{DATE}}', (Get-Date -Format 'yyyy-MM-dd HH:mm')).Replace('{{VER}}', $AppVer).Replace('{{GENERATED}}', (U '\u041e\u0442\u0447\u0451\u0442 \u0441\u043e\u0437\u0434\u0430\u043d')).Replace('{{B_COPY}}', (U '\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0441\u0432\u043e\u0434\u043a\u0443')).Replace('{{B_THEME}}', (U '\u0422\u0435\u043c\u0430')).Replace('{{B_PRINT}}', (U '\u041f\u0435\u0447\u0430\u0442\u044c'))
     [IO.File]::WriteAllText($path, $doc, (New-Object Text.UTF8Encoding($true)))
+    Save-Snapshot $curSnap      # only after the report exists: the next report compares against this one
 }

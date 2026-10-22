@@ -10,7 +10,8 @@
     "anyDesk": true,
     "hopToDesk": true,
     "hopToDeskCli": true,
-    "freezeDetect": true
+    "freezeDetect": true,
+    "anyDeskCli": true
   },
   "passport": {
     "askIfMissing": true,
@@ -44,6 +45,23 @@
     "extraProducts": [],
     "excludePattern": ""
   },
+  "anyDesk": {
+    "extraConfigDirs": [],
+    "extraPaths": []
+  },
+  "hopToDesk": {
+    "extraPaths": []
+  },
+  "checks": {
+    "uptimeDaysWarn": 30,
+    "ramGbWarn": 4,
+    "diskFreePctWarn": 20,
+    "diskFreePctBad": 10,
+    "diskFreeGbBad": 5,
+    "osSupportWarnDays": 90,
+    "changeFreeGb": 5,
+    "osSupport": []
+  },
   "reports": {
     "fileName": "{pc}_report_{date}.html",
     "dateFormat": "yyyyMMdd"
@@ -56,7 +74,8 @@
   },
   "timeouts": {
     "hopToDeskCliSec": 8,
-    "robocopySec": 30
+    "robocopySec": 30,
+    "anyDeskCliSec": 8
   },
   "ui": {
     "openReportWhenDone": true,

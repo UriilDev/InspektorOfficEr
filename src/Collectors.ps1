@@ -32,21 +32,71 @@ function Get-Uninstall {
     $script:UninstallCache
 }
 
-# ---- AnyDesk: ID is "ad.anynet.id=NNN" in system.conf (older builds: ad.anydesk.id) ----
+# ---- is the product present at all? (tells "not installed" from "installed, but its ID was not found") ----
+function Test-AppPresent([string]$pat) {
+    $why = @()
+    try { $x = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $pat } | Select-Object -First 1; if ($x) { $why += "process: $($x.Name)" } } catch { }
+    try { $x = Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match $pat } | Select-Object -First 1; if ($x) { $why += "service: $($x.PSChildName)" } } catch { }
+    try { $x = Get-Uninstall | Where-Object { $_.DisplayName -match $pat } | Select-Object -First 1; if ($x) { $why += "installed: $($x.DisplayName)" } } catch { }
+    $why
+}
+
+# executables of a product: Seen = anywhere (running copy, portable), Installed = Program Files / uninstall entry / config.json (safe to call with a CLI switch)
+function Get-AppExePaths([string]$procPat, [string]$uninstPat, [string[]]$known, [string]$exeName, [string]$cfgKey) {
+    $seen = New-Object Collections.ArrayList; $inst = New-Object Collections.ArrayList
+    try { foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $procPat })) { try { if ($p.Path) { [void]$seen.Add([string]$p.Path) } } catch { } } } catch { }
+    foreach ($k in $known) { if ($k) { [void]$inst.Add($k) } }
+    try { foreach ($u in @(Get-Uninstall | Where-Object { $_.DisplayName -match $uninstPat })) { if ($u.InstallLocation) { [void]$inst.Add((Join-Path ([string]$u.InstallLocation).Trim('"') $exeName)) } } } catch { }
+    foreach ($x in @(Cfg $cfgKey @())) { if ($x) { [void]$inst.Add([string]$x) } }
+    $ok = { param($l) @($l | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -Unique) }
+    [pscustomobject]@{ Installed = (& $ok $inst); Seen = (& $ok (@($inst) + @($seen))) }
+}
+
+function Get-ProgramFilesPaths([string]$rel) {
+    $r = @()
+    foreach ($b in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) { if ($b) { $r += (Join-Path $b $rel) } }
+    if ($env:LOCALAPPDATA) { $r += (Join-Path $env:LOCALAPPDATA ('Programs\' + $rel)) }
+    $r
+}
+
+# ---- AnyDesk: ID is "ad.anynet.id=NNN" in system.conf (older builds: ad.anydesk.id). Portable copies keep it in %APPDATA%\AnyDesk too ----
 function Get-AnyDeskId {
     $files = @()
     if ($env:ProgramData) { $files += Join-Path $env:ProgramData 'AnyDesk\system.conf' }
     if ($env:APPDATA)     { $files += Join-Path $env:APPDATA 'AnyDesk\system.conf' }
     foreach ($d in (Get-UserProfileDirs)) { $files += Join-Path $d 'AppData\Roaming\AnyDesk\system.conf' }
+    foreach ($d in @(Cfg 'anyDesk.extraConfigDirs' @())) { if ($d) { $files += Join-Path ([string]$d) 'system.conf' } }     # config.json: non-standard config folders
     foreach ($f in ($files | Select-Object -Unique)) {
-        if (-not (Test-Path $f)) { Write-Log DEBUG "anydesk: no file $f"; continue }
+        if (-not (Test-Path -LiteralPath $f)) { Write-Log DEBUG "anydesk: no file $f"; continue }
         try {
             $m = [regex]::Match((Read-TextSmart $f), '(?m)^\s*ad\.(?:anynet|anydesk)\.id\s*=\s*(\d+)')
             if ($m.Success) { $script:Src.AnyDesk = $f; Write-Log DEBUG "anydesk: id found in $f"; return $m.Groups[1].Value }
             Write-Log DEBUG "anydesk: $f exists, but has no ad.anynet.id line"
         } catch { Write-Log DEBUG "anydesk: cannot read ${f}: $($_.Exception.Message)" }
     }
-    Write-Log DEBUG 'anydesk: ID not found in any known location'
+    # no config: ask an INSTALLED copy (AnyDesk.exe --get-id)
+    if (Cfg 'features.anyDeskCli' $true) {
+        $ex = Get-AppExePaths 'AnyDesk' '^AnyDesk' @(Get-ProgramFilesPaths 'AnyDesk\AnyDesk.exe') 'AnyDesk.exe' 'anyDesk.extraPaths'
+        foreach ($exe in @($ex.Installed | Select-Object -First 2)) {
+            $x = Invoke-External $exe '--get-id' ([int](Cfg 'timeouts.anyDeskCliSec' 8))
+            Write-Log DEBUG "anydesk: cli $exe --get-id exit=$($x.ExitCode) timeout=$($x.TimedOut) error=$($x.Error)"
+            $m = [regex]::Match($x.Stdout, '(?m)^\s*(\d{6,})\s*$')
+            if ($m.Success) { $script:Src.AnyDesk = "$exe --get-id (CLI)"; return $m.Groups[1].Value }
+        }
+    }
+    $why = @(Test-AppPresent '^AnyDesk')
+    try {   # portable copy lying around (desktop / downloads), not running
+        foreach ($d in (Get-UserProfileDirs)) { foreach ($sub in 'Desktop', 'Downloads') {
+            $x = Get-ChildItem (Join-Path $d $sub) -Filter 'AnyDesk*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($x) { $why += "portable exe: $($x.FullName)" }
+        } }
+    } catch { }
+    if ($why.Count) {
+        $script:Src.AnyDesk = 'present, but no ID found: ' + ($why -join ' ; ')
+        Write-Log WARN 'AnyDesk is present, but its ID was not found (start it once, or add its config folder to config.json: anyDesk.extraConfigDirs)'
+        return $NoId
+    }
+    Write-Log DEBUG 'anydesk: not installed, ID not found in any known location'
     return $NO
 }
 
@@ -68,23 +118,25 @@ function Get-HopToDeskId {
     $note = { param($m) [void]$log.Add($m); Write-Log DEBUG "hop: $m" }
     $dirs = @()
     if (-not $NoHopCli) {   # HopToDesk 1.46.x keeps no plain ID in *.toml: ask the app itself (HopToDesk.exe --get-id)
-        $exe = @('C:\Program Files (x86)\HopToDesk\HopToDesk.exe', 'C:\Program Files\HopToDesk\HopToDesk.exe') | Where-Object { Test-Path $_ } | Select-Object -First 1
-        if ($exe) {
+        $ex = Get-AppExePaths 'HopToDesk' '^HopToDesk' @(Get-ProgramFilesPaths 'HopToDesk\HopToDesk.exe') 'HopToDesk.exe' 'hopToDesk.extraPaths'
+        if ($ex.Installed.Count) {
             $to = [int](Cfg 'timeouts.hopToDeskCliSec' 8)
-            $x = Invoke-External $exe '--get-id' $to
-            & $note "cli $exe --get-id exit=$($x.ExitCode) timeout=$($x.TimedOut) error=$($x.Error)"
-            $m = [regex]::Match($x.Stdout, '(?m)^\s*(\d{6,})\s*$')
-            if ($m.Success) { $script:Src.Hop = "$exe --get-id (CLI)"; return $m.Groups[1].Value }
-            & $note 'cli returned no numeric ID'
-        } else { & $note 'HopToDesk.exe not found in Program Files' }
+            foreach ($exe in @($ex.Installed | Select-Object -First 2)) {
+                $x = Invoke-External $exe '--get-id' $to
+                & $note "cli $exe --get-id exit=$($x.ExitCode) timeout=$($x.TimedOut) error=$($x.Error)"
+                $m = [regex]::Match($x.Stdout, '(?m)^\s*(\d{6,})\s*$')
+                if ($m.Success) { $script:Src.Hop = "$exe --get-id (CLI)"; return $m.Groups[1].Value }
+                & $note 'cli returned no numeric ID'
+            }
+        } else { & $note 'HopToDesk.exe not found (Program Files, per-user install, uninstall entries, config.json)' }
     }
 
     if ($env:APPDATA)     { $dirs += Join-Path $env:APPDATA 'HopToDesk' }
     if ($env:ProgramData) { $dirs += Join-Path $env:ProgramData 'HopToDesk' }
     foreach ($d in (Get-UserProfileDirs)) { $dirs += Join-Path $d 'AppData\Roaming\HopToDesk'; $dirs += Join-Path $d 'AppData\Local\HopToDesk' }
     foreach ($d in ($dirs | Select-Object -Unique)) {
-        $ex = Test-Path $d; & $note "dir $d exists=$ex"
-        if (-not $ex) { continue }
+        $ex2 = Test-Path $d; & $note "dir $d exists=$ex2"
+        if (-not $ex2) { continue }
         $r = Find-HopId $d
         if ($r) { $script:Src.Hop = $r.File; return $r.Id }
         & $note '   no id in *.toml'
@@ -112,22 +164,26 @@ function Get-HopToDeskId {
         } finally { Remove-Item $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue }
     } else { & $note 'not elevated: service profiles (robocopy /B) skipped' }
 
-    $running = @(); try { $running = @(Get-Process -Name 'HopToDesk*' -ErrorAction SilentlyContinue) } catch { }
-    if (@(Get-Uninstall | Where-Object { $_.DisplayName -match 'HopToDesk' }).Count -or $running.Count) {
-        Write-Host '  HopToDesk is installed but its ID file was not found; search log: Raports\_hop_search.txt' -ForegroundColor Yellow
-        try { $running | ForEach-Object { [void]$log.Add("process $($_.Name) $($_.Path)") } } catch { }
+    $why = @(Test-AppPresent 'HopToDesk')
+    if ($why.Count) {
+        $script:Src.Hop = 'present, but no ID found: ' + ($why -join ' ; ')
+        Write-Host '  HopToDesk is present, but its ID was not found; search log: Raports\_hop_search.txt' -ForegroundColor Yellow
+        foreach ($w in $why) { [void]$log.Add($w) }
         try { $log | Out-File (Join-Path $OutDir '_hop_search.txt') -Encoding utf8 } catch { }
+        return $NoId
     }
     return $NO
 }
 
-# ---- Deep Freeze / Shadow Defender: services, processes, drivers, uninstall entries, known folders ----
+# ---- Deep Freeze / Shadow Defender: services, processes, drivers (both are in the Services registry key), uninstall entries, known folders ----
+# Deep Freeze patterns do NOT use the bare word "Faronics": the vendor has other products (that would be a false "Deep Freeze: on").
+# Presence of the product is detected; frozen / thawed state cannot be read reliably, so it is not claimed.
 function Get-FreezeStatus {
     $on   = [string](Cfg 'freeze.enabledText' (U '\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u043e'))
     $excl = 'MiniTool|ShadowMaker|ShadowCopy|Volume Shadow|SDRSVC|SDXHelper'     # look-alikes that are NOT freeze software
     $defs = [ordered]@{
-        'Deep Freeze'     = @{ Pat = 'Faronics|Deep ?Freeze|DFServ|DF5Serv|DepFrz|DeepFrz|FrzState2k|DFRTSvc|Persi0'
-                               Paths = @('C:\Persi0', 'C:\Program Files\Faronics', 'C:\Program Files (x86)\Faronics',
+        'Deep Freeze'     = @{ Pat = 'Deep ?Freeze|DFServ|DF5Serv|DepFrz|DeepFrz|FrzState2k|DFRTSvc|Persi0'
+                               Paths = @('C:\Persi0', 'C:\Program Files\Faronics\Deep Freeze*', 'C:\Program Files (x86)\Faronics\Deep Freeze*',
                                          (Join-Path $env:windir 'SysWOW64\DFServ.exe'), (Join-Path $env:windir 'System32\DFServ.exe'),
                                          (Join-Path $env:windir 'System32\drivers\DepFrz.sys')) }
         'Shadow Defender' = @{ Pat = 'Shadow ?Defender|ShadowDefender|SDCoreService|SDDrv'
@@ -140,15 +196,13 @@ function Get-FreezeStatus {
     $ex2 = [string](Cfg 'freeze.excludePattern' ''); if ($ex2) { $excl = "$excl|$ex2" }
     $procs = @(); try { $procs = @(Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) } catch { Write-Log DEBUG "freeze: Get-Process failed: $($_.Exception.Message)" }
     $svcs  = @(); try { $svcs = @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue | ForEach-Object { "$($_.PSChildName) | $($_.GetValue('DisplayName')) | $($_.GetValue('ImagePath'))" }) } catch { Write-Log DEBUG "freeze: cannot read the Services registry key: $($_.Exception.Message)" }   # services + drivers straight from the registry (fast)
-    $drvs  = @()
     $apps  = @(Get-Uninstall | ForEach-Object { "$($_.DisplayName) | $($_.Publisher)" })
 
     $res = @(); $why = @()
     foreach ($prod in $defs.Keys) {
         $pat = $defs[$prod].Pat; $ev = @()
         $x = $procs | Where-Object { $_ -match $pat -and $_ -notmatch $excl } | Select-Object -First 1; if ($x) { $ev += "process: $x" }
-        $x = $svcs  | Where-Object { $_ -match $pat -and $_ -notmatch $excl } | Select-Object -First 1; if ($x) { $ev += "service: $x" }
-        $x = $drvs  | Where-Object { $_ -match $pat -and $_ -notmatch $excl } | Select-Object -First 1; if ($x) { $ev += "driver: $x" }
+        $x = $svcs  | Where-Object { $_ -match $pat -and $_ -notmatch $excl } | Select-Object -First 1; if ($x) { $ev += "service/driver: $x" }
         $x = $apps  | Where-Object { $_ -match $pat -and $_ -notmatch $excl } | Select-Object -First 1; if ($x) { $ev += "installed: $x" }
         foreach ($p in $defs[$prod].Paths) { if (Test-Path $p -ErrorAction SilentlyContinue) { $ev += "path: $p"; break } }
         if (-not $ev.Count) { Write-Log DEBUG "freeze: $prod - no evidence (processes=$($procs.Count) services=$($svcs.Count) apps=$($apps.Count))"; continue }
@@ -164,4 +218,3 @@ function Get-FreezeStatus {
     if ($res.Count) { $script:Src.Freeze = ($why -join ' || '); return ($res -join '; ') }
     return $NO
 }
-
