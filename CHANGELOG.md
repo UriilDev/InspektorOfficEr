@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1
+- **Fix (critical): Excel "repair" prompt on the 2nd run.** In `Write-InventoryRow` the hashtable `$C` (field -> column) and the loop variable `$c` (cell) are the same variable in PowerShell (names are case-insensitive). Once the sheet had a data row, the cell loop overwrote the column map, so no cell was written: an empty `<row r="3"/>` and `<col min="" max="">` were saved. The map is now `$Cm`. The first run only worked because the sheet had no data rows yet.
+- Self-check before the workbook is replaced (`Test-InventoryDoc`): unique ascending row numbers and cell references, the written row holds the PC name, valid `<col>` min/max, styles.xml counts (fonts / fills / borders / cellXfs) match, every `s` index exists. On failure the workbook is NOT replaced, the row goes to `_pending_rows.csv`, the console shows the reason ("self-check: ...").
+- Migration: books damaged by 1.1.0 (empty last row, empty `<col>`) are not fixed automatically: delete the empty row and re-run; manual data is untouched. No format changes otherwise.
+
 ## 1.1.0
 - Detection: AnyDesk is also looked up via `AnyDesk.exe --get-id` of an installed copy, extra folders (`anyDesk.extraConfigDirs`, `anyDesk.extraPaths`), portable copies on the desktop / in downloads. HopToDesk: per-user install and uninstall-entry paths (`hopToDesk.extraPaths`).
 - **Cell text change (no migration needed):** when AnyDesk / HopToDesk is present but its ID cannot be read, the cell now says "Установлен, ID не найден" instead of "Нет". A real or hand-typed ID in the workbook is never replaced by it.

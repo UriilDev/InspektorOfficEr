@@ -56,7 +56,7 @@ function Invoke-Inventory {
         return 0
     } catch {
         Write-Host "  Excel NOT updated: $($_.Exception.Message)" -ForegroundColor Red
-        if ($_.Exception.Message -match 'protected|merged') { Write-Host '  (fix the table as described above and run again; nothing was changed in the workbook)' -ForegroundColor Yellow }
+        if ($_.Exception.Message -match 'protected|merged|self-check') { Write-Host '  (fix the table as described above and run again; nothing was changed in the workbook)' -ForegroundColor Yellow }
         else { Write-Host '  (if the file is open in Excel - close it and run again; the workbook was not changed)' -ForegroundColor Yellow }
         $pf = Save-PendingRow $rec
         Write-Host "  row saved to: $pf" -ForegroundColor Yellow

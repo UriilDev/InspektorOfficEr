@@ -206,6 +206,39 @@ function Set-CellIf($doc, $row, [int]$col, [string]$old, [string]$new, [string]$
 }
 
 # the worksheet part: copy, update, verify, then replace the original (a failure half-way never damages the workbook)
+# self-check before the sheet is saved: any failure throws, the workbook is then NOT replaced (row goes to _pending_rows.csv)
+function Test-InventoryDoc($zip, $doc, $ns, $data, $row, [int]$pcCol, [string]$pc) {
+    if ($pcCol -le 0) { throw 'self-check: PC name column was not resolved' }
+    $seen = @{}; $prev = 0
+    foreach ($r in @($data.ChildNodes | Where-Object { $_.LocalName -eq 'row' })) {
+        $rn = 0; if (-not [int]::TryParse($r.GetAttribute('r'), [ref]$rn) -or $rn -le $prev) { throw "self-check: row numbers are not unique / ascending (row '$($r.GetAttribute('r'))')" }
+        $prev = $rn; $pc0 = 0
+        foreach ($x in @($r.ChildNodes | Where-Object { $_.LocalName -eq 'c' })) {
+            $m = [regex]::Match($x.GetAttribute('r'), '^([A-Z]+)(\d+)$')
+            if (-not $m.Success -or [int]$m.Groups[2].Value -ne $rn) { throw "self-check: bad cell reference '$($x.GetAttribute('r'))' in row $rn" }
+            $ci = Col-Index $m.Groups[1].Value
+            if ($ci -le $pc0) { throw "self-check: cells out of order in row $rn" }
+            $pc0 = $ci
+        }
+    }
+    $cr = $row.ChildNodes | Where-Object { $_.LocalName -eq 'c' -and $_.GetAttribute('r') -eq ((Col-Letter $pcCol) + $row.GetAttribute('r')) } | Select-Object -First 1
+    if (-not $cr -or (Get-TextOf $cr) -ne $pc) { throw 'self-check: the written row does not contain the PC name' }
+    foreach ($cl in @($doc.SelectNodes('//m:cols/m:col', $ns))) {
+        $mn = 0; $mx = 0
+        if (-not [int]::TryParse($cl.GetAttribute('min'), [ref]$mn) -or -not [int]::TryParse($cl.GetAttribute('max'), [ref]$mx) -or $mn -lt 1 -or $mx -lt $mn) { throw 'self-check: a <col> element has no valid min/max' }
+    }
+    $sd = Read-ZipXml $zip 'xl/styles.xml'
+    if ($sd) {
+        $sn = New-Object Xml.XmlNamespaceManager($sd.NameTable); $sn.AddNamespace('m', $XNS)
+        foreach ($pair in @(@('fonts', 'font'), @('fills', 'fill'), @('borders', 'border'), @('cellXfs', 'xf'))) {
+            $nd = $sd.SelectSingleNode('//m:' + $pair[0], $sn)
+            if ($nd -and [int]$nd.GetAttribute('count') -ne @($nd.ChildNodes | Where-Object { $_.LocalName -eq $pair[1] }).Count) { throw "self-check: styles.xml <$($pair[0])> count does not match its items" }
+        }
+        $nx = @($sd.SelectNodes('//m:cellXfs/m:xf', $sn)).Count
+        foreach ($x in @($doc.SelectNodes('//m:c[@s]', $ns))) { if ([int]$x.GetAttribute('s') -ge $nx) { throw "self-check: cell $($x.GetAttribute('r')) uses a style that does not exist" } }
+    }
+}
+
 function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$created) {
     $keys = 'Num', 'Floor', 'Room', 'Place', 'User', 'Any', 'Hop', 'State', 'Freeze', 'Pc', 'Rpt'
     $fs = [IO.File]::Open($file, 'Open', 'ReadWrite', 'None')
@@ -251,20 +284,20 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
             }
         }
         # field -> column by header text, so inserted / reordered columns do not matter
-        $C = @{}
-        foreach ($k in $keys) { $C[$k] = 0; foreach ($t in $known[$k]) { if ($hmap.ContainsKey($t)) { $C[$k] = $hmap[$t]; break } } }
+        $Cm = @{}
+        foreach ($k in $keys) { $Cm[$k] = 0; foreach ($t in $known[$k]) { if ($hmap.ContainsKey($t)) { $Cm[$k] = $hmap[$t]; break } } }
         for ($i = 0; $i -lt 9; $i++) {      # legacy position only into an EMPTY header cell; a column that holds anything else is never used
             $k = $keys[$i]
-            if ($C[$k]) { continue }
-            if (-not $hdr) { $C[$k] = $i + 1; continue }
-            if (-not $hText.ContainsKey($i + 1)) { $C[$k] = $i + 1; Set-Cell $doc $hdr ($i + 1) $headers[$i] $lastHdrStyle; if ($i + 1 -gt $maxCol) { $maxCol = $i + 1 } }
+            if ($Cm[$k]) { continue }
+            if (-not $hdr) { $Cm[$k] = $i + 1; continue }
+            if (-not $hText.ContainsKey($i + 1)) { $Cm[$k] = $i + 1; Set-Cell $doc $hdr ($i + 1) $headers[$i] $lastHdrStyle; if ($i + 1 -gt $maxCol) { $maxCol = $i + 1 } }
             else { Write-Log WARN "excel: column '$($headers[$i])' is not in the header row (column $($i + 1) is '$($hText[$i + 1])'): this field is not written" }
         }
         $rptNew = $false
-        if (-not $C.Pc) { $C.Pc = [math]::Max($maxCol + 1, 10); if ($hdr) { Set-Cell $doc $hdr $C.Pc $headers[9] $lastHdrStyle }; $maxCol = [math]::Max($maxCol, $C.Pc) }
-        if (-not $C.Rpt) {
-            $C.Rpt = [math]::Max($maxCol + 1, 11); $rptNew = $true
-            if ($hdr) { $hs = Add-LinkStyle $zip $lastHdrStyle $false; Set-Cell $doc $hdr $C.Rpt $headers[10] $(if ($hs) { $hs } else { $lastHdrStyle }) }
+        if (-not $Cm.Pc) { $Cm.Pc = [math]::Max($maxCol + 1, 10); if ($hdr) { Set-Cell $doc $hdr $Cm.Pc $headers[9] $lastHdrStyle }; $maxCol = [math]::Max($maxCol, $Cm.Pc) }
+        if (-not $Cm.Rpt) {
+            $Cm.Rpt = [math]::Max($maxCol + 1, 11); $rptNew = $true
+            if ($hdr) { $hs = Add-LinkStyle $zip $lastHdrStyle $false; Set-Cell $doc $hdr $Cm.Rpt $headers[10] $(if ($hs) { $hs } else { $lastHdrStyle }) }
         }
 
         # model of existing data rows
@@ -284,74 +317,74 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
 
         # find existing row: PC name > AnyDesk ID > floor+room+place > user (only if unique and has no PC name yet)
         $hit = $null; $how = ''
-        $hit = $items | Where-Object { & $same (Cv $_ $C.Pc) $rec.Pc } | Select-Object -First 1; if ($hit) { $how = 'PC name' }
-        if (-not $hit -and $C.Any -and $rec.AnyDesk -ne $none -and $rec.AnyDesk -ne $script:NoId) { $hit = $items | Where-Object { (Cv $_ $C.Any) -eq $rec.AnyDesk } | Select-Object -First 1; if ($hit) { $how = 'AnyDesk ID' } }
-        if (-not $hit -and $C.Floor -and $C.Room -and $C.Place -and $rec.Floor -and $rec.Room -and $rec.Place) {
-            $hit = $items | Where-Object { (& $same (Cv $_ $C.Floor) $rec.Floor) -and (& $same (Cv $_ $C.Room) $rec.Room) -and (& $same (Cv $_ $C.Place) $rec.Place) } | Select-Object -First 1
+        $hit = $items | Where-Object { & $same (Cv $_ $Cm.Pc) $rec.Pc } | Select-Object -First 1; if ($hit) { $how = 'PC name' }
+        if (-not $hit -and $Cm.Any -and $rec.AnyDesk -ne $none -and $rec.AnyDesk -ne $script:NoId) { $hit = $items | Where-Object { (Cv $_ $Cm.Any) -eq $rec.AnyDesk } | Select-Object -First 1; if ($hit) { $how = 'AnyDesk ID' } }
+        if (-not $hit -and $Cm.Floor -and $Cm.Room -and $Cm.Place -and $rec.Floor -and $rec.Room -and $rec.Place) {
+            $hit = $items | Where-Object { (& $same (Cv $_ $Cm.Floor) $rec.Floor) -and (& $same (Cv $_ $Cm.Room) $rec.Room) -and (& $same (Cv $_ $Cm.Place) $rec.Place) } | Select-Object -First 1
             if ($hit) { $how = 'floor/room/place' }
         }
-        if (-not $hit -and $C.User -and $rec.User) {
-            $cand = @($items | Where-Object { (& $same (Cv $_ $C.User) $rec.User) -and -not (Cv $_ $C.Pc) })
+        if (-not $hit -and $Cm.User -and $rec.User) {
+            $cand = @($items | Where-Object { (& $same (Cv $_ $Cm.User) $rec.User) -and -not (Cv $_ $Cm.Pc) })
             if ($cand.Count -eq 1) { $hit = $cand[0]; $how = 'user' }
         }
         $lastRow = ($rows | ForEach-Object { [int]$_.GetAttribute('r') } | Measure-Object -Maximum).Maximum
         if (-not $lastRow) { $lastRow = $hdrN }
         foreach ($m in $merges) { if ($m.R2 -gt $lastRow) { $lastRow = $m.R2 } }       # never write into (or under) a merged block
 
-        $writeCols = @($C.Values | Where-Object { $_ })
+        $writeCols = @($Cm.Values | Where-Object { $_ })
         if ($hit) {
             $row = $hit.Node
             foreach ($cc in $writeCols) { $mg = Find-MergeAt $merges $hit.N $cc; if ($mg) { throw "cell $(Col-Letter $cc)$($hit.N) is inside a merged range; the row was not written (unmerge the cells)" } }
             $st = @{}; foreach ($c in $row.ChildNodes) { if ($c.LocalName -eq 'c') { $st[(Col-Index ([regex]::Match($c.GetAttribute('r'), '^[A-Z]+').Value))] = $c.GetAttribute('s') } }
             $sty = { param($i) if ($st.ContainsKey($i)) { $st[$i] } elseif ($st.Count) { ($st.Values | Select-Object -First 1) } else { '' } }
             $n = @{}
-            $n.Floor = if ($rec.Floor) { $rec.Floor } else { Cv $hit $C.Floor }
-            $n.Room  = if ($rec.Room)  { $rec.Room }  else { Cv $hit $C.Room }
-            $n.Place = if ($rec.Place) { $rec.Place } else { Cv $hit $C.Place }
-            $n.User  = if ($rec.UserFromPassport -or -not (Cv $hit $C.User)) { $rec.User } else { Cv $hit $C.User }
-            $n.Any   = Merge-Id (Cv $hit $C.Any) $rec.AnyDesk $none
-            $n.Hop   = Merge-Id (Cv $hit $C.Hop) $rec.Hop $none
-            $n.State = if (Cv $hit $C.State) { Cv $hit $C.State } else { $rec.State }
-            $n.Freeze = Merge-Freeze (Cv $hit $C.Freeze) $rec.Freeze $none
+            $n.Floor = if ($rec.Floor) { $rec.Floor } else { Cv $hit $Cm.Floor }
+            $n.Room  = if ($rec.Room)  { $rec.Room }  else { Cv $hit $Cm.Room }
+            $n.Place = if ($rec.Place) { $rec.Place } else { Cv $hit $Cm.Place }
+            $n.User  = if ($rec.UserFromPassport -or -not (Cv $hit $Cm.User)) { $rec.User } else { Cv $hit $Cm.User }
+            $n.Any   = Merge-Id (Cv $hit $Cm.Any) $rec.AnyDesk $none
+            $n.Hop   = Merge-Id (Cv $hit $Cm.Hop) $rec.Hop $none
+            $n.State = if (Cv $hit $Cm.State) { Cv $hit $Cm.State } else { $rec.State }
+            $n.Freeze = Merge-Freeze (Cv $hit $Cm.Freeze) $rec.Freeze $none
             $n.Pc    = $rec.Pc
             $changed = 0
             foreach ($k in 'Floor', 'Room', 'Place', 'User', 'Any', 'Hop', 'State', 'Freeze', 'Pc') {
-                if (Set-CellIf $doc $row $C[$k] (Cv $hit $C[$k]) ([string]$n[$k]) (& $sty $C[$k])) { $changed++ }
+                if (Set-CellIf $doc $row $Cm[$k] (Cv $hit $Cm[$k]) ([string]$n[$k]) (& $sty $Cm[$k])) { $changed++ }
             }
             [void]$row.RemoveAttribute('spans')
-            if ($rec.ReportRel -and $C.Rpt) { $ls = Get-LinkStyleOf $row $C.Rpt; if (-not $ls) { $ls = Add-LinkStyle $zip (& $sty $C.Pc) $true }; Set-LinkCell $doc $row $C.Rpt $rec.ReportRel $rec.ReportLabel $ls }
+            if ($rec.ReportRel -and $Cm.Rpt) { $ls = Get-LinkStyleOf $row $Cm.Rpt; if (-not $ls) { $ls = Add-LinkStyle $zip (& $sty $Cm.Pc) $true }; Set-LinkCell $doc $row $Cm.Rpt $rec.ReportRel $rec.ReportLabel $ls }
             $result = "updated row $($hit.N) (match: $how; cells changed: $changed)"
             $last = $lastRow
         } else {
             $new = $lastRow + 1
             foreach ($cc in $writeCols) { $mg = Find-MergeAt $merges $new $cc; if ($mg) { throw "the new row $new would fall into a merged range; the row was not written" } }
-            $num = ($items | ForEach-Object { $x = 0; if ([int]::TryParse((Cv $_ $C.Num), [ref]$x)) { $x } else { 0 } } | Measure-Object -Maximum).Maximum
+            $num = ($items | ForEach-Object { $x = 0; if ([int]::TryParse((Cv $_ $Cm.Num), [ref]$x)) { $x } else { 0 } } | Measure-Object -Maximum).Maximum
             $src = $items | Where-Object { $_.N -eq $lastRow } | Select-Object -First 1; if (-not $src) { $src = $items | Select-Object -Last 1 }
             $st = @{}; if ($src) { foreach ($c in $src.Node.ChildNodes) { if ($c.LocalName -eq 'c') { $st[(Col-Index ([regex]::Match($c.GetAttribute('r'), '^[A-Z]+').Value))] = $c.GetAttribute('s') } } }
             $sty = { param($i) if ($st.ContainsKey($i)) { $st[$i] } elseif ($created) { '2' } else { '' } }
             $row = $doc.CreateElement('row', $XNS); $row.SetAttribute('r', [string]$new); [void]$data.AppendChild($row)
-            if ($C.Num) { Set-Cell $doc $row $C.Num ([string]([int]$num + 1)) (& $sty $C.Num) $true }
+            if ($Cm.Num) { Set-Cell $doc $row $Cm.Num ([string]([int]$num + 1)) (& $sty $Cm.Num) $true }
             $vals = @{ Floor = $rec.Floor; Room = $rec.Room; Place = $rec.Place; User = $rec.User; Any = $rec.AnyDesk; Hop = $rec.Hop; State = $rec.State; Freeze = $rec.Freeze; Pc = $rec.Pc }
-            foreach ($k in $vals.Keys) { if ($C[$k]) { Set-Cell $doc $row $C[$k] ([string]$vals[$k]) (& $sty $C[$k]) } }
-            if ($rec.ReportRel -and $C.Rpt) { $ls = Get-LinkStyleOf $row $C.Rpt; if (-not $ls) { $ls = Add-LinkStyle $zip (& $sty $C.Pc) $true }; Set-LinkCell $doc $row $C.Rpt $rec.ReportRel $rec.ReportLabel $ls }
+            foreach ($k in $vals.Keys) { if ($Cm[$k]) { Set-Cell $doc $row $Cm[$k] ([string]$vals[$k]) (& $sty $Cm[$k]) } }
+            if ($rec.ReportRel -and $Cm.Rpt) { $ls = Get-LinkStyleOf $row $Cm.Rpt; if (-not $ls) { $ls = Add-LinkStyle $zip (& $sty $Cm.Pc) $true }; Set-LinkCell $doc $row $Cm.Rpt $rec.ReportRel $rec.ReportLabel $ls }
             $last = $new
             $result = "added row $new (#$([int]$num + 1))"
         }
 
         # new report column: paint the empty cells of existing rows too, so the whole column has its own colour
         if ($rptNew) {
-            $fsty = Add-LinkStyle $zip (& $sty $C.Pc) $false
+            $fsty = Add-LinkStyle $zip (& $sty $Cm.Pc) $false
             foreach ($rw in @($data.ChildNodes | Where-Object { $_.LocalName -eq 'row' })) {
                 $rn = [int]$rw.GetAttribute('r'); if ($rn -le $hdrN) { continue }
-                if (Find-MergeAt $merges $rn $C.Rpt) { continue }
-                $ref = (Col-Letter $C.Rpt) + $rn
+                if (Find-MergeAt $merges $rn $Cm.Rpt) { continue }
+                $ref = (Col-Letter $Cm.Rpt) + $rn
                 $has = $rw.ChildNodes | Where-Object { $_.LocalName -eq 'c' -and $_.GetAttribute('r') -eq $ref } | Select-Object -First 1
-                if (-not $has -and $fsty) { Set-Cell $doc $rw $C.Rpt '' $fsty; [void]$rw.RemoveAttribute('spans') }
+                if (-not $has -and $fsty) { Set-Cell $doc $rw $Cm.Rpt '' $fsty; [void]$rw.RemoveAttribute('spans') }
             }
         }
 
         # dimension / autofilter (its own start cell is kept) / column width
-        $lastCol = [math]::Max($maxCol, [math]::Max($C.Pc, $C.Rpt))
+        $lastCol = [math]::Max($maxCol, [math]::Max($Cm.Pc, $Cm.Rpt))
         $dim = $doc.SelectSingleNode('//m:dimension', $ns)
         if ($dim) { $dim.SetAttribute('ref', 'A1:' + (Col-Letter $lastCol) + [math]::Max($last, $lastRow)) }
         $af = $doc.SelectSingleNode('//m:autoFilter', $ns)
@@ -360,12 +393,13 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
             $af.SetAttribute('ref', $a0 + ':' + (Col-Letter $lastCol) + [math]::Max($last, $lastRow))
         }
         $colsN = $doc.SelectSingleNode('//m:cols', $ns)
-        foreach ($cc in @($C.Pc, $C.Rpt)) {
+        foreach ($cc in @($Cm.Pc, $Cm.Rpt)) {
             if ($colsN -and -not ($colsN.ChildNodes | Where-Object { $_.NodeType -eq 'Element' -and [int]$_.GetAttribute('min') -le $cc -and [int]$_.GetAttribute('max') -ge $cc })) {
                 $cn = $doc.CreateElement('col', $XNS); $cn.SetAttribute('min', [string]$cc); $cn.SetAttribute('max', [string]$cc)
-                $cn.SetAttribute('width', $(if ($cc -eq $C.Rpt) { '22' } else { '18' })); $cn.SetAttribute('customWidth', '1'); [void]$colsN.AppendChild($cn)
+                $cn.SetAttribute('width', $(if ($cc -eq $Cm.Rpt) { '22' } else { '18' })); $cn.SetAttribute('customWidth', '1'); [void]$colsN.AppendChild($cn)
             }
         }
+        Test-InventoryDoc $zip $doc $ns $data $row $Cm.Pc ([string]$rec.Pc)
         Write-ZipXml $zip $sp $doc
     } finally { $zip.Dispose(); $fs.Dispose() }
     $result
