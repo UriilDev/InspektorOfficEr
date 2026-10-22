@@ -1,0 +1,58 @@
+{
+  "paths": {
+    "reportsDir": "Raports",
+    "passportsDir": "Passports",
+    "workbook": ""
+  },
+  "features": {
+    "report": true,
+    "excel": true,
+    "anyDesk": true,
+    "hopToDesk": true,
+    "hopToDeskCli": true,
+    "freezeDetect": true
+  },
+  "passport": {
+    "askIfMissing": true,
+    "roomsPerFloor": {
+      "1": 10,
+      "2": 10
+    }
+  },
+  "excel": {
+    "sheetName": "Заморозка",
+    "headers": [
+      "#",
+      "Этаж",
+      "Помещение",
+      "Рабочее место",
+      "Пользователь",
+      "Anydesk",
+      "HopToDesk",
+      "Состояние рабочей станции",
+      "Состояние заморозки",
+      "Имя ПК",
+      "Отчёт"
+    ],
+    "defaultState": "Хорошее",
+    "reportLabel": "Отчёт",
+    "labelDateFormat": "yyyy-MM-dd"
+  },
+  "freeze": {
+    "enabledText": "Включено",
+    "disableBuiltin": [],
+    "extraProducts": [],
+    "excludePattern": ""
+  },
+  "reports": {
+    "fileName": "{pc}_report_{date}.html",
+    "dateFormat": "yyyyMMdd"
+  },
+  "backup": {
+    "keep": 10
+  },
+  "ui": {
+    "openReportWhenDone": true,
+    "openFolderWhenDone": false
+  }
+}
