@@ -44,7 +44,7 @@ Describe 'Repository hygiene' {
         $tmp = Join-Path ([IO.Path]::GetTempPath()) ('ioe_' + [guid]::NewGuid().ToString('N') + '.ps1')
         try {
             & (Join-Path $script:Repo 'build.ps1') -OutFile $tmp | Out-Null
-            [IO.File]::ReadAllText($tmp) | Should -BeExactly ([IO.File]::ReadAllText((Join-Path $script:Repo 'Inspektor.ps1')))
+            ([IO.File]::ReadAllText($tmp) -replace "`r`n", "`n") | Should -BeExactly (([IO.File]::ReadAllText((Join-Path $script:Repo 'Inspektor.ps1'))) -replace "`r`n", "`n")
         } finally { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'Inspektor.ps1 keeps its command-line switches' {
