@@ -1,0 +1,16 @@
+# Line endings are part of the product: scripts must be CRLF on every machine (Windows PowerShell 5.1, USB drive).
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.json text eol=lf
+*.yml  text eol=lf
+*.md   text
+
+# Files NOT included in "Download ZIP" / release source archives (git archive): users get only what is needed to run the tool.
+# They stay available through `git clone`.
+/src                export-ignore
+/build.ps1          export-ignore
+/.gitignore         export-ignore
+/.gitattributes     export-ignore
