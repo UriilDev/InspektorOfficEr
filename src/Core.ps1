@@ -1,5 +1,5 @@
 # ===================== CORE: strings, config, shared state =====================
-$AppName = 'InspektorOfficEr'; $AppVer = '1.1.1'
+$AppName = 'InspektorOfficEr'; $AppVer = '1.2.0'
 
 # ---------- Cyrillic-safe strings: sources are pure ASCII, texts are written as \uXXXX ----------
 function U([string]$s) { [regex]::Replace($s, '\\u([0-9a-fA-F]{4})', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) }) }
@@ -31,4 +31,4 @@ function Finish($code) { try { Stop-Transcript | Out-Null } catch { }; exit $cod
 # ---------- shared state ----------
 $NO = (U '\u041d\u0435\u0442')
 $NoId = (U '\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d, ID \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d')     # product is present, but its ID could not be read (not the same as "none")
-$script:Src = @{ Passport = ''; AnyDesk = ''; Hop = ''; Freeze = '' }   # where each value came from (printed to console)
+$script:Src = @{ Passport = ''; RemoteA = ''; RemoteB = ''; Disk = '' }   # where each value came from (printed to console)

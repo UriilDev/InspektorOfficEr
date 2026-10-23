@@ -37,7 +37,7 @@ function Read-PassportFile($path) {
     $null
 }
 
-# ---- no passport found: ask once, save on the USB drive (survives Deep Freeze / Shadow Defender reboots) ----
+# ---- no passport found: ask once, save on the USB drive (survives reboots of systems with disk protection) ----
 function Ask-Passport {
     $maxRoom = @{}
     $cr = Cfg 'passport.roomsPerFloor' $null

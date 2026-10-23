@@ -1,25 +1,24 @@
 # Changelog
 
+## 1.2.0 — подготовка к публичному релизу
+- Нейтральные формулировки: функции, переменные, ключи `config.json`, сообщения журнала и заголовки таблицы описывают категории (`remoteAccessDetect`, `diskProtectionDetect`, `hardwareCollector`), а не конкретные продукты.
+- Технические сигнатуры распознавания установленного ПО вынесены в единый блок `$script:Sig` (`src/Collectors.ps1`).
+- Параметр `-NoHopCli` заменён на `-NoRemoteCli`; ключи `features.anyDesk*`/`hopToDesk*`/`freezeDetect`/`freeze.*` заменены на `features.remoteAccessDetect`, `features.remoteAccessCli`, `features.diskProtectionDetect`, `diskProtectionDetect.*`.
+- Добавлена проверка Windows Unified Write Filter через CIM.
+- Заголовки таблицы по умолчанию: «Удалённый доступ 1 (ID)», «Удалённый доступ 2 (ID)», «Защита диска»; лист и файл — «Инвентаризация». Для существующих таблиц задайте прежние заголовки в `excel.headers`.
+- Добавлены LICENSE (MIT), `.gitignore`, пример паспорта `Passports/pc_info.example.json`, README.
+
 ## 1.1.1
-- **Fix (critical): Excel "repair" prompt on the 2nd run.** In `Write-InventoryRow` the hashtable `$C` (field -> column) and the loop variable `$c` (cell) are the same variable in PowerShell (names are case-insensitive). Once the sheet had a data row, the cell loop overwrote the column map, so no cell was written: an empty `<row r="3"/>` and `<col min="" max="">` were saved. The map is now `$Cm`. The first run only worked because the sheet had no data rows yet.
-- Self-check before the workbook is replaced (`Test-InventoryDoc`): unique ascending row numbers and cell references, the written row holds the PC name, valid `<col>` min/max, styles.xml counts (fonts / fills / borders / cellXfs) match, every `s` index exists. On failure the workbook is NOT replaced, the row goes to `_pending_rows.csv`, the console shows the reason ("self-check: ...").
-- Migration: books damaged by 1.1.0 (empty last row, empty `<col>`) are not fixed automatically: delete the empty row and re-run; manual data is untouched. No format changes otherwise.
+- Исправлена ошибка, из-за которой Excel предлагал «восстановление» файла при втором запуске (конфликт имён переменных в `Write-InventoryRow`).
+- Самопроверка перед заменой книги (`Test-InventoryDoc`): при ошибке книга не заменяется, строка сохраняется в `_pending_rows.csv`.
 
 ## 1.1.0
-- Detection: AnyDesk is also looked up via `AnyDesk.exe --get-id` of an installed copy, extra folders (`anyDesk.extraConfigDirs`, `anyDesk.extraPaths`), portable copies on the desktop / in downloads. HopToDesk: per-user install and uninstall-entry paths (`hopToDesk.extraPaths`).
-- **Cell text change (no migration needed):** when AnyDesk / HopToDesk is present but its ID cannot be read, the cell now says "Установлен, ID не найден" instead of "Нет". A real or hand-typed ID in the workbook is never replaced by it.
-- Deep Freeze is no longer triggered by other Faronics products (patterns and folders are specific to Deep Freeze). Presence is reported; frozen / thawed state is still not claimed.
-- Quick check: thresholds in config.json section "checks" (all optional, defaults built in): uptimeDaysWarn 30, ramGbWarn 4, diskFreePctWarn 20, diskFreePctBad 10, diskFreeGbBad 5, osSupportWarnDays 90, changeFreeGb 5, osSupport (own end-of-support dates by build).
-- Quick check: OS support is decided by Windows build and edition with end dates (Windows 10 22H2 ended 2025-10-14, Windows 11 24H2 Home/Pro 2026-10-13 and so on); antivirus state (on / off / outdated signatures) from SecurityCenter2; firewall falls back to the registry on Windows 7; every problem gets a short "what to do" line; unknown data is skipped instead of guessed.
-- Report: "what to fix first" line, "what changed since the previous report of this PC" (snapshot in Raports\_state\<PC>.json: OS, RAM, free space, disks, antivirus, installed / removed / updated programs), faster table build for 500+ programs, debounced search with a counter, status words next to colours, focus outline, print layout for long tables.
-- Excel: columns are found by header text (inserted / reordered columns are fine; a column that is not found is skipped with a warning, nothing is overwritten); only cells whose value changed are written (formulas, number cells and styles stay); a protected sheet or merged cells stop the write with a clear message and the row goes to `_pending_rows.csv`; the configured sheet name is used when the workbook has several sheets; a few title rows above the header are tolerated; the update is made on a copy that is verified before it replaces the workbook. Backups as before.
-- `_last_inventory.json` now contains the report link.
-- Tests and CI are not part of this project (build.ps1 -Check remains as a local drift check).
+- Быстрая проверка: пороги в секции `checks` (`uptimeDaysWarn`, `ramGbWarn`, `diskFreePctWarn`, `diskFreePctBad`, `diskFreeGbBad`, `osSupportWarnDays`, `changeFreeGb`, `osSupport`).
+- Поддержка ОС определяется по сборке и редакции Windows; состояние антивируса — из SecurityCenter2; брандмауэр — с запасным чтением из реестра.
+- Отчёт: блок «что исправить в первую очередь», «что изменилось с прошлого отчёта» (снимок в `Raports\_state`), быстрая таблица программ, поиск, печатная версия.
+- Excel: столбцы ищутся по тексту заголовка; записываются только изменённые ячейки; защищённый лист и объединённые ячейки останавливают запись с понятным сообщением; обновление делается на копии с проверкой.
 
 ## 1.0.2
-- Source split into src/*.ps1, single portable Inspektor.ps1 is built by build.ps1 (CI checks it is up to date).
-- Log with levels (config log.level), new switch -Diagnose: writes Raports\_debug\diagnose_<PC>_<time>.txt.
-- External programs (HopToDesk CLI, robocopy) run with a hard timeout (config timeouts.hopToDeskCliSec, timeouts.robocopySec).
-- A failing collector or WMI class no longer aborts the run: the value becomes "none" / the section is empty, the reason is logged.
-- robocopy /B is skipped when not elevated; a warning is shown when the script is not run as Administrator.
-- config.json: new optional keys "log" and "timeouts" (defaults are built in, existing files keep working). No Excel format changes.
+- Исходники разделены на `src/*.ps1`; единый переносимый `Inspektor.ps1` собирается `build.ps1`.
+- Журнал с уровнями (`log.level`), режим `-Diagnose`.
+- Сбой отдельного сборщика или класса WMI не прерывает запуск.

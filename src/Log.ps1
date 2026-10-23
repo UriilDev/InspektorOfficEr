@@ -97,9 +97,9 @@ function Get-EnvironmentInfo {
     } catch { }
     $l += "script drive    : $Drive ($dt)"
     $l += "config.json     : $(if ($script:Cfg) { 'loaded' } else { 'not found / invalid (defaults)' })"
-    $l += "switches        : SkipReport=$SkipReport SkipExcel=$SkipExcel NoHopCli=$NoHopCli NoPrompt=$NoPrompt Diagnose=$Diagnose"
-    $l += "features        : report=$(Cfg 'features.report' $true) excel=$(Cfg 'features.excel' $true) anyDesk=$(Cfg 'features.anyDesk' $true) hopToDesk=$(Cfg 'features.hopToDesk' $true) freezeDetect=$(Cfg 'features.freezeDetect' $true)"
-    $l += "timeouts (sec)  : hopCli=$(Cfg 'timeouts.hopToDeskCliSec' 8) robocopy=$(Cfg 'timeouts.robocopySec' 30)"
+    $l += "switches        : SkipReport=$SkipReport SkipExcel=$SkipExcel NoHopCli=$NoRemoteCli NoPrompt=$NoPrompt Diagnose=$Diagnose"
+    $l += "features        : hardwareCollector=$(Cfg 'features.hardwareCollector' $true) excel=$(Cfg 'features.excel' $true) remoteAccessDetect=$(Cfg 'features.remoteAccessDetect' $true) remoteAccessCli=$(Cfg 'features.remoteAccessCli' $true) diskProtectionDetect=$(Cfg 'features.diskProtectionDetect' $true)"
+    $l += "timeouts (sec)  : remoteCli=$(Cfg 'timeouts.remoteCliSec' 8) robocopy=$(Cfg 'timeouts.robocopySec' 30)"
     $l
 }
 

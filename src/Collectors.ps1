@@ -32,7 +32,27 @@ function Get-Uninstall {
     $script:UninstallCache
 }
 
-# ---- is the product present at all? (tells "not installed" from "installed, but its ID was not found") ----
+# ---- compatibility signatures ----
+# The ONLY place with product-specific technical identifiers (folder / file / service / process names, CLI switch).
+# They are used read-only to recognise software that is ALREADY installed on the audited PC. No third-party code is bundled,
+# distributed or modified. Product names and trademarks belong to their respective owners; no affiliation or endorsement is implied.
+$script:Sig = @{
+    RemoteA = @{ Folder = 'AnyDesk';   ConfFile = 'system.conf'; ExeName = 'AnyDesk.exe';   ProcPat = '^AnyDesk';   CliArgs = '--get-id'
+                 IdRx = '(?m)^\s*ad\.(?:anynet|anydesk)\.id\s*=\s*(\d+)' }
+    RemoteB = @{ Folder = 'HopToDesk'; ConfFile = 'HopToDesk.toml'; ExeName = 'HopToDesk.exe'; ProcPat = '^HopToDesk'; CliArgs = '--get-id'
+                 IdRx = '(?m)^\s*id\s*=\s*[''"]([A-Za-z0-9]+)[''"]' }
+    DiskExclude = 'MiniTool|ShadowMaker|ShadowCopy|Volume Shadow|SDRSVC|SDXHelper'
+    Disk = [ordered]@{
+        'Disk protection (type A)' = @{ Pat = 'Deep ?Freeze|DFServ|DF5Serv|DepFrz|DeepFrz|FrzState2k|DFRTSvc|Persi0'
+                                        Paths = @('C:\Persi0', 'C:\Program Files\Faronics\Deep Freeze*', 'C:\Program Files (x86)\Faronics\Deep Freeze*',
+                                                  (Join-Path $env:windir 'SysWOW64\DFServ.exe'), (Join-Path $env:windir 'System32\DFServ.exe'),
+                                                  (Join-Path $env:windir 'System32\drivers\DepFrz.sys')) }
+        'Disk protection (type B)' = @{ Pat = 'Shadow ?Defender|ShadowDefender|SDCoreService|SDDrv'
+                                        Paths = @('C:\Program Files\Shadow Defender', 'C:\Program Files (x86)\Shadow Defender') }
+    }
+}
+
+# ---- is the program present at all? (tells "not installed" from "installed, but its ID was not found") ----
 function Test-AppPresent([string]$pat) {
     $why = @()
     try { $x = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $pat } | Select-Object -First 1; if ($x) { $why += "process: $($x.Name)" } } catch { }
@@ -41,7 +61,7 @@ function Test-AppPresent([string]$pat) {
     $why
 }
 
-# executables of a product: Seen = anywhere (running copy, portable), Installed = Program Files / uninstall entry / config.json (safe to call with a CLI switch)
+# executables of a program: Seen = anywhere (running copy, portable), Installed = Program Files / uninstall entry / config.json (safe to call with a CLI switch)
 function Get-AppExePaths([string]$procPat, [string]$uninstPat, [string[]]$known, [string]$exeName, [string]$cfgKey) {
     $seen = New-Object Collections.ArrayList; $inst = New-Object Collections.ArrayList
     try { foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $procPat })) { try { if ($p.Path) { [void]$seen.Add([string]$p.Path) } } catch { } } } catch { }
@@ -59,104 +79,107 @@ function Get-ProgramFilesPaths([string]$rel) {
     $r
 }
 
-# ---- AnyDesk: ID is "ad.anynet.id=NNN" in system.conf (older builds: ad.anydesk.id). Portable copies keep it in %APPDATA%\AnyDesk too ----
-function Get-AnyDeskId {
+# ---- remote access tool A: plain-text ID setting in the program's config folder; portable copies keep it in %APPDATA% too ----
+function Get-RemoteIdA {
+    $A = $script:Sig.RemoteA
     $files = @()
-    if ($env:ProgramData) { $files += Join-Path $env:ProgramData 'AnyDesk\system.conf' }
-    if ($env:APPDATA)     { $files += Join-Path $env:APPDATA 'AnyDesk\system.conf' }
-    foreach ($d in (Get-UserProfileDirs)) { $files += Join-Path $d 'AppData\Roaming\AnyDesk\system.conf' }
-    foreach ($d in @(Cfg 'anyDesk.extraConfigDirs' @())) { if ($d) { $files += Join-Path ([string]$d) 'system.conf' } }     # config.json: non-standard config folders
+    if ($env:ProgramData) { $files += Join-Path $env:ProgramData ($A.Folder + '\' + $A.ConfFile) }
+    if ($env:APPDATA)     { $files += Join-Path $env:APPDATA ($A.Folder + '\' + $A.ConfFile) }
+    foreach ($d in (Get-UserProfileDirs)) { $files += Join-Path $d ('AppData\Roaming\' + $A.Folder + '\' + $A.ConfFile) }
+    foreach ($d in @(Cfg 'remoteAccessDetect.extraConfigDirsA' @())) { if ($d) { $files += Join-Path ([string]$d) $A.ConfFile } }     # config.json: non-standard config folders
     foreach ($f in ($files | Select-Object -Unique)) {
-        if (-not (Test-Path -LiteralPath $f)) { Write-Log DEBUG "anydesk: no file $f"; continue }
+        if (-not (Test-Path -LiteralPath $f)) { Write-Log DEBUG "remote A: no file $f"; continue }
         try {
-            $m = [regex]::Match((Read-TextSmart $f), '(?m)^\s*ad\.(?:anynet|anydesk)\.id\s*=\s*(\d+)')
-            if ($m.Success) { $script:Src.AnyDesk = $f; Write-Log DEBUG "anydesk: id found in $f"; return $m.Groups[1].Value }
-            Write-Log DEBUG "anydesk: $f exists, but has no ad.anynet.id line"
-        } catch { Write-Log DEBUG "anydesk: cannot read ${f}: $($_.Exception.Message)" }
+            $m = [regex]::Match((Read-TextSmart $f), $A.IdRx)
+            if ($m.Success) { $script:Src.RemoteA = $f; Write-Log DEBUG "remote A: id found in $f"; return $m.Groups[1].Value }
+            Write-Log DEBUG "remote A: $f exists, but has no ID line"
+        } catch { Write-Log DEBUG "remote A: cannot read ${f}: $($_.Exception.Message)" }
     }
-    # no config: ask an INSTALLED copy (AnyDesk.exe --get-id)
-    if (Cfg 'features.anyDeskCli' $true) {
-        $ex = Get-AppExePaths 'AnyDesk' '^AnyDesk' @(Get-ProgramFilesPaths 'AnyDesk\AnyDesk.exe') 'AnyDesk.exe' 'anyDesk.extraPaths'
+    # no config: ask an INSTALLED copy through its command-line switch (can be turned off: features.remoteAccessCli / -NoRemoteCli)
+    if (-not $NoRemoteCli) {
+        $ex = Get-AppExePaths $A.Folder $A.ProcPat @(Get-ProgramFilesPaths ($A.Folder + '\' + $A.ExeName)) $A.ExeName 'remoteAccessDetect.extraPathsA'
         foreach ($exe in @($ex.Installed | Select-Object -First 2)) {
-            $x = Invoke-External $exe '--get-id' ([int](Cfg 'timeouts.anyDeskCliSec' 8))
-            Write-Log DEBUG "anydesk: cli $exe --get-id exit=$($x.ExitCode) timeout=$($x.TimedOut) error=$($x.Error)"
+            $x = Invoke-External $exe $A.CliArgs ([int](Cfg 'timeouts.remoteCliSec' 8))
+            Write-Log DEBUG "remote A: cli $exe $($A.CliArgs) exit=$($x.ExitCode) timeout=$($x.TimedOut) error=$($x.Error)"
             $m = [regex]::Match($x.Stdout, '(?m)^\s*(\d{6,})\s*$')
-            if ($m.Success) { $script:Src.AnyDesk = "$exe --get-id (CLI)"; return $m.Groups[1].Value }
+            if ($m.Success) { $script:Src.RemoteA = "$exe $($A.CliArgs) (CLI)"; return $m.Groups[1].Value }
         }
     }
-    $why = @(Test-AppPresent '^AnyDesk')
+    $why = @(Test-AppPresent $A.ProcPat)
     try {   # portable copy lying around (desktop / downloads), not running
         foreach ($d in (Get-UserProfileDirs)) { foreach ($sub in 'Desktop', 'Downloads') {
-            $x = Get-ChildItem (Join-Path $d $sub) -Filter 'AnyDesk*.exe' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            $x = Get-ChildItem (Join-Path $d $sub) -Filter ($A.Folder + '*.exe') -File -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($x) { $why += "portable exe: $($x.FullName)" }
         } }
     } catch { }
     if ($why.Count) {
-        $script:Src.AnyDesk = 'present, but no ID found: ' + ($why -join ' ; ')
-        Write-Log WARN 'AnyDesk is present, but its ID was not found (start it once, or add its config folder to config.json: anyDesk.extraConfigDirs)'
+        $script:Src.RemoteA = 'present, but no ID found: ' + ($why -join ' ; ')
+        Write-Log WARN 'Remote access tool A is present, but its ID was not found (start it once, or add its config folder to config.json: remoteAccessDetect.extraConfigDirsA)'
         return $NoId
     }
-    Write-Log DEBUG 'anydesk: not installed, ID not found in any known location'
+    Write-Log DEBUG 'remote A: not installed, ID not found in any known location'
     return $NO
 }
 
-# ---- HopToDesk (RustDesk-based): id = '...' in HopToDesk*.toml ----
-function Find-HopId($dir) {
+# ---- remote access tool B: ID in a *.toml settings file (or through the installed program's CLI) ----
+function Find-RemoteIdB($dir) {
+    $B = $script:Sig.RemoteB
     $tomls = @(Get-ChildItem $dir -Recurse -Depth 3 -Filter '*.toml' -File -Force -ErrorAction SilentlyContinue |
-               Sort-Object @{ e = { if ($_.Name -match '^HopToDesk\.toml$') { 0 } else { 1 } } }, Name)
+               Sort-Object @{ e = { if ($_.Name -ieq $B.ConfFile) { 0 } else { 1 } } }, Name)
     foreach ($f in $tomls) {
         try {
-            $m = [regex]::Match((Read-TextSmart $f.FullName), '(?m)^\s*id\s*=\s*[''"]([A-Za-z0-9]+)[''"]')
+            $m = [regex]::Match((Read-TextSmart $f.FullName), $B.IdRx)
             if ($m.Success) { return [pscustomobject]@{ Id = $m.Groups[1].Value; File = $f.FullName } }
-        } catch { Write-Log DEBUG "hop: cannot read $($f.FullName): $($_.Exception.Message)" }
+        } catch { Write-Log DEBUG "remote B: cannot read $($f.FullName): $($_.Exception.Message)" }
     }
     $null
 }
 
-function Get-HopToDeskId {
+function Get-RemoteIdB {
+    $B = $script:Sig.RemoteB
     $log = New-Object Collections.ArrayList
-    $note = { param($m) [void]$log.Add($m); Write-Log DEBUG "hop: $m" }
+    $note = { param($m) [void]$log.Add($m); Write-Log DEBUG "remote B: $m" }
     $dirs = @()
-    if (-not $NoHopCli) {   # HopToDesk 1.46.x keeps no plain ID in *.toml: ask the app itself (HopToDesk.exe --get-id)
-        $ex = Get-AppExePaths 'HopToDesk' '^HopToDesk' @(Get-ProgramFilesPaths 'HopToDesk\HopToDesk.exe') 'HopToDesk.exe' 'hopToDesk.extraPaths'
+    if (-not $NoRemoteCli) {   # some builds keep no plain ID in *.toml: ask the installed program itself
+        $ex = Get-AppExePaths $B.Folder $B.ProcPat @(Get-ProgramFilesPaths ($B.Folder + '\' + $B.ExeName)) $B.ExeName 'remoteAccessDetect.extraPathsB'
         if ($ex.Installed.Count) {
-            $to = [int](Cfg 'timeouts.hopToDeskCliSec' 8)
+            $to = [int](Cfg 'timeouts.remoteCliSec' 8)
             foreach ($exe in @($ex.Installed | Select-Object -First 2)) {
-                $x = Invoke-External $exe '--get-id' $to
-                & $note "cli $exe --get-id exit=$($x.ExitCode) timeout=$($x.TimedOut) error=$($x.Error)"
+                $x = Invoke-External $exe $B.CliArgs $to
+                & $note "cli $exe $($B.CliArgs) exit=$($x.ExitCode) timeout=$($x.TimedOut) error=$($x.Error)"
                 $m = [regex]::Match($x.Stdout, '(?m)^\s*(\d{6,})\s*$')
-                if ($m.Success) { $script:Src.Hop = "$exe --get-id (CLI)"; return $m.Groups[1].Value }
+                if ($m.Success) { $script:Src.RemoteB = "$exe $($B.CliArgs) (CLI)"; return $m.Groups[1].Value }
                 & $note 'cli returned no numeric ID'
             }
-        } else { & $note 'HopToDesk.exe not found (Program Files, per-user install, uninstall entries, config.json)' }
+        } else { & $note 'executable not found (Program Files, per-user install, uninstall entries, config.json)' }
     }
 
-    if ($env:APPDATA)     { $dirs += Join-Path $env:APPDATA 'HopToDesk' }
-    if ($env:ProgramData) { $dirs += Join-Path $env:ProgramData 'HopToDesk' }
-    foreach ($d in (Get-UserProfileDirs)) { $dirs += Join-Path $d 'AppData\Roaming\HopToDesk'; $dirs += Join-Path $d 'AppData\Local\HopToDesk' }
+    if ($env:APPDATA)     { $dirs += Join-Path $env:APPDATA $B.Folder }
+    if ($env:ProgramData) { $dirs += Join-Path $env:ProgramData $B.Folder }
+    foreach ($d in (Get-UserProfileDirs)) { $dirs += Join-Path $d ('AppData\Roaming\' + $B.Folder); $dirs += Join-Path $d ('AppData\Local\' + $B.Folder) }
     foreach ($d in ($dirs | Select-Object -Unique)) {
         $ex2 = Test-Path $d; & $note "dir $d exists=$ex2"
         if (-not $ex2) { continue }
-        $r = Find-HopId $d
-        if ($r) { $script:Src.Hop = $r.File; return $r.Id }
+        $r = Find-RemoteIdB $d
+        if ($r) { $script:Src.RemoteB = $r.File; return $r.Id }
         & $note '   no id in *.toml'
     }
 
     # service profiles are ACL-protected: copy *.toml with backup privilege (robocopy /B), then parse the copy.
     # /B needs an elevated session, without it robocopy only fails, so it is skipped.
     if (Test-IsAdmin) {
-        $tmpRoot = Join-Path $env:TEMP ('h2d_' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $tmpRoot = Join-Path $env:TEMP ('ra_' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         $rto = [int](Cfg 'timeouts.robocopySec' 30)
         try {
             foreach ($s in 'C:\Windows\ServiceProfiles\LocalService', 'C:\Windows\ServiceProfiles\NetworkService', 'C:\Windows\System32\config\systemprofile') {
-                $src = Join-Path $s 'AppData\Roaming\HopToDesk'
+                $src = Join-Path $s ('AppData\Roaming\' + $B.Folder)
                 $dst = Join-Path $tmpRoot (Split-Path $s -Leaf)
                 try {
                     $x = Invoke-External 'robocopy' ('"{0}" "{1}" *.toml /E /B /R:0 /W:0 /NP /NJH /NJS /NFL /NDL' -f $src, $dst) $rto
                     & $note "robocopy /B $src exit=$($x.ExitCode) timeout=$($x.TimedOut) $($x.Error)"
                     if (Test-Path $dst) {
-                        $r = Find-HopId $dst
-                        if ($r) { $script:Src.Hop = $r.File.Replace($dst, $src) + ' (backup-mode copy)'; return $r.Id }
+                        $r = Find-RemoteIdB $dst
+                        if ($r) { $script:Src.RemoteB = $r.File.Replace($dst, $src) + ' (backup-mode copy)'; return $r.Id }
                         & $note '   copied, but no id in *.toml'
                     }
                 } catch { & $note "robocopy error: $($_.Exception.Message)" }
@@ -164,57 +187,49 @@ function Get-HopToDeskId {
         } finally { Remove-Item $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue }
     } else { & $note 'not elevated: service profiles (robocopy /B) skipped' }
 
-    $why = @(Test-AppPresent 'HopToDesk')
+    $why = @(Test-AppPresent $B.ProcPat)
     if ($why.Count) {
-        $script:Src.Hop = 'present, but no ID found: ' + ($why -join ' ; ')
-        Write-Host '  HopToDesk is present, but its ID was not found; search log: Raports\_hop_search.txt' -ForegroundColor Yellow
+        $script:Src.RemoteB = 'present, but no ID found: ' + ($why -join ' ; ')
+        Write-Host '  Remote access tool B is present, but its ID was not found; search log: Raports\_remote_search.txt' -ForegroundColor Yellow
         foreach ($w in $why) { [void]$log.Add($w) }
-        try { $log | Out-File (Join-Path $OutDir '_hop_search.txt') -Encoding utf8 } catch { }
+        try { $log | Out-File (Join-Path $OutDir '_remote_search.txt') -Encoding utf8 } catch { }
         return $NoId
     }
     return $NO
 }
 
-# ---- Deep Freeze / Shadow Defender: services, processes, drivers (both are in the Services registry key), uninstall entries, known folders ----
-# Deep Freeze patterns do NOT use the bare word "Faronics": the vendor has other products (that would be a false "Deep Freeze: on").
-# Presence of the product is detected; frozen / thawed state cannot be read reliably, so it is not claimed.
-function Get-FreezeStatus {
-    $on   = [string](Cfg 'freeze.enabledText' (U '\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u043e'))
-    $excl = 'MiniTool|ShadowMaker|ShadowCopy|Volume Shadow|SDRSVC|SDXHelper'     # look-alikes that are NOT freeze software
-    $defs = [ordered]@{
-        'Deep Freeze'     = @{ Pat = 'Deep ?Freeze|DFServ|DF5Serv|DepFrz|DeepFrz|FrzState2k|DFRTSvc|Persi0'
-                               Paths = @('C:\Persi0', 'C:\Program Files\Faronics\Deep Freeze*', 'C:\Program Files (x86)\Faronics\Deep Freeze*',
-                                         (Join-Path $env:windir 'SysWOW64\DFServ.exe'), (Join-Path $env:windir 'System32\DFServ.exe'),
-                                         (Join-Path $env:windir 'System32\drivers\DepFrz.sys')) }
-        'Shadow Defender' = @{ Pat = 'Shadow ?Defender|ShadowDefender|SDCoreService|SDDrv'
-                               Paths = @('C:\Program Files\Shadow Defender', 'C:\Program Files (x86)\Shadow Defender') }
-    }
-    foreach ($d in @(Cfg 'freeze.disableBuiltin' @())) { $defs.Remove([string]$d) }       # config.json: drop a built-in product
-    foreach ($xp in @(Cfg 'freeze.extraProducts' @())) {                                  # config.json: add your own product
+# ---- disk protection software: services, processes, drivers (all in the Services registry key), uninstall entries, known folders ----
+# Presence is detected; the protected / unprotected state cannot be read reliably, so it is not claimed.
+function Get-DiskProtectionStatus {
+    $on   = [string](Cfg 'diskProtectionDetect.enabledText' (U '\u0412\u043a\u043b\u044e\u0447\u0435\u043d\u043e'))
+    $excl = [string]$script:Sig.DiskExclude     # look-alikes that are NOT disk protection
+    $defs = [ordered]@{}
+    foreach ($k in $script:Sig.Disk.Keys) { $defs[$k] = $script:Sig.Disk[$k] }
+    foreach ($d in @(Cfg 'diskProtectionDetect.disableBuiltin' @())) { $defs.Remove([string]$d) }       # config.json: drop a built-in entry
+    foreach ($xp in @(Cfg 'diskProtectionDetect.extraProducts' @())) {                                  # config.json: add your own entry
         if ($xp.name -and $xp.pattern) { $defs[[string]$xp.name] = @{ Pat = [string]$xp.pattern; Paths = @($xp.paths | Where-Object { $_ }) } }
     }
-    $ex2 = [string](Cfg 'freeze.excludePattern' ''); if ($ex2) { $excl = "$excl|$ex2" }
-    $procs = @(); try { $procs = @(Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) } catch { Write-Log DEBUG "freeze: Get-Process failed: $($_.Exception.Message)" }
-    $svcs  = @(); try { $svcs = @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue | ForEach-Object { "$($_.PSChildName) | $($_.GetValue('DisplayName')) | $($_.GetValue('ImagePath'))" }) } catch { Write-Log DEBUG "freeze: cannot read the Services registry key: $($_.Exception.Message)" }   # services + drivers straight from the registry (fast)
+    $ex2 = [string](Cfg 'diskProtectionDetect.excludePattern' ''); if ($ex2) { $excl = "$excl|$ex2" }
+    $procs = @(); try { $procs = @(Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) } catch { Write-Log DEBUG "disk protection: Get-Process failed: $($_.Exception.Message)" }
+    $svcs  = @(); try { $svcs = @(Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services' -ErrorAction SilentlyContinue | ForEach-Object { "$($_.PSChildName) | $($_.GetValue('DisplayName')) | $($_.GetValue('ImagePath'))" }) } catch { Write-Log DEBUG "disk protection: cannot read the Services registry key: $($_.Exception.Message)" }
     $apps  = @(Get-Uninstall | ForEach-Object { "$($_.DisplayName) | $($_.Publisher)" })
 
     $res = @(); $why = @()
+    try {                                               # native: Windows Unified Write Filter (Enterprise / Education / IoT editions)
+        $f = Get-CimInstance -Namespace 'root\standardcimv2\embedded' -ClassName UWF_Filter -ErrorAction Stop | Select-Object -First 1
+        if ($f -and $f.CurrentEnabled) { $res += "Windows UWF $([char]0x2014) $on"; $why += 'UWF_Filter.CurrentEnabled = True' }
+    } catch { Write-Log DEBUG "disk protection: UWF is not available: $($_.Exception.Message)" }
     foreach ($prod in $defs.Keys) {
         $pat = $defs[$prod].Pat; $ev = @()
         $x = $procs | Where-Object { $_ -match $pat -and $_ -notmatch $excl } | Select-Object -First 1; if ($x) { $ev += "process: $x" }
         $x = $svcs  | Where-Object { $_ -match $pat -and $_ -notmatch $excl } | Select-Object -First 1; if ($x) { $ev += "service/driver: $x" }
         $x = $apps  | Where-Object { $_ -match $pat -and $_ -notmatch $excl } | Select-Object -First 1; if ($x) { $ev += "installed: $x" }
         foreach ($p in $defs[$prod].Paths) { if (Test-Path $p -ErrorAction SilentlyContinue) { $ev += "path: $p"; break } }
-        if (-not $ev.Count) { Write-Log DEBUG "freeze: $prod - no evidence (processes=$($procs.Count) services=$($svcs.Count) apps=$($apps.Count))"; continue }
-        $name = $prod
-        if ($prod -eq 'Deep Freeze') {
-            $ed = [regex]::Match(($apps -join "`n"), 'Deep Freeze\s+(Standard|Enterprise|Server)')
-            $name = if ($ed.Success) { $ed.Value -replace '\s+', ' ' } else { 'Deep Freeze Standard' }
-        }
-        $res += "$name $([char]0x2014) $on"
+        if (-not $ev.Count) { Write-Log DEBUG "disk protection: $prod - no evidence (processes=$($procs.Count) services=$($svcs.Count) apps=$($apps.Count))"; continue }
+        $res += "$prod $([char]0x2014) $on"
         $why += "$prod <- " + ($ev -join ' ; ')
-        Write-Log DEBUG ("freeze: $prod - " + ($ev -join ' ; '))
+        Write-Log DEBUG ("disk protection: $prod - " + ($ev -join ' ; '))
     }
-    if ($res.Count) { $script:Src.Freeze = ($why -join ' || '); return ($res -join '; ') }
+    if ($res.Count) { $script:Src.Disk = ($why -join ' || '); return ($res -join '; ') }
     return $NO
 }

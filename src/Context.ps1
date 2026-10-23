@@ -3,9 +3,9 @@ $Root = $PSScriptRoot
 $Cfg  = Import-InspektorConfig (Join-Path $Root 'config.json')
 
 # command-line parameters always win over config.json
-if (-not (Cfg 'features.report' $true))      { $SkipReport = [switch]$true }
+if (-not (Cfg 'features.hardwareCollector' $true)) { $SkipReport = [switch]$true }
 if (-not (Cfg 'features.excel' $true))        { $SkipExcel = [switch]$true }
-if (-not (Cfg 'features.hopToDeskCli' $true)) { $NoHopCli  = [switch]$true }
+if (-not (Cfg 'features.remoteAccessCli' $true)) { $NoRemoteCli  = [switch]$true }
 if (-not (Cfg 'passport.askIfMissing' $true)) { $NoPrompt  = [switch]$true }
 
 # -Diagnose collects the full debug log (also keeps the console verbose)
