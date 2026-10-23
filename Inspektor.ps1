@@ -7,7 +7,7 @@ param([switch]$SkipReport, [switch]$SkipExcel, [switch]$NoRemoteCli, [switch]$No
 $ErrorActionPreference = 'Stop'
 
 # ===================== CORE: strings, config, shared state =====================
-$AppName = 'InspektorOfficEr'; $AppVer = '1.2.0'
+$AppName = 'InspektorOfficEr'; $AppVer = '1.3.0'
 
 # ---------- Cyrillic-safe strings: sources are pure ASCII, texts are written as \uXXXX ----------
 function U([string]$s) { [regex]::Replace($s, '\\u([0-9a-fA-F]{4})', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) }) }
@@ -178,7 +178,7 @@ $Out       = Join-Path $OutDir $RptName
 $StartTime = Get-Date
 
 # ===================== QUICK CHECKS: thresholds from config.json (section "checks"), plain wording =====================
-function New-Check([string]$Level, [string]$Text, [string]$Action = '') { [pscustomobject]@{ L = $Level; T = $Text; A = $Action } }
+function New-Check([string]$Level, [string]$Text, [string]$Action = '', [string]$Short = '') { [pscustomobject]@{ L = $Level; T = $Text; A = $Action; S = $Short } }
 
 function ConvertTo-Date([string]$s) {
     try { [datetime]::ParseExact($s, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } catch { $null }
@@ -220,7 +220,7 @@ function Get-OsSupportCheck($os) {
     $cap = ([string]$os.Caption).Trim()
     if (-not $cap) { return $null }
     if ($cap -match 'Windows (7|8|Vista|XP)|2003|2008|Server 2012') {
-        return (New-Check 'bad' ((U '\u0423\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0430\u044f \u041e\u0421 \u0431\u0435\u0437 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438: ') + $cap) (U '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0438\u043b\u0438 \u0437\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u041e\u0421 (\u0431\u0435\u0437 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0439 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u0438 \u043f\u043e\u0432\u044b\u0448\u0435\u043d \u0440\u0438\u0441\u043a \u0432\u0437\u043b\u043e\u043c\u0430)'))
+        return (New-Check 'bad' ((U '\u0423\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0430\u044f \u041e\u0421 \u0431\u0435\u0437 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438: ') + $cap) (U '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0438\u043b\u0438 \u0437\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u041e\u0421 (\u0431\u0435\u0437 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0439 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u0438 \u043f\u043e\u0432\u044b\u0448\u0435\u043d \u0440\u0438\u0441\u043a \u0432\u0437\u043b\u043e\u043c\u0430)') (U '\u041e\u0421 \u0431\u0435\u0437 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438'))
     }
     $end = Get-OsSupportEnd $os
     if (-not $end) { return (New-Check 'ok' ((U '\u041e\u0421: ') + $cap)) }
@@ -229,10 +229,10 @@ function Get-OsSupportCheck($os) {
     $act = U '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c Windows \u0434\u043e \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u043c\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 (\u0435\u0441\u043b\u0438 \u043e\u0444\u043e\u0440\u043c\u043b\u0435\u043d\u0430 \u043f\u043b\u0430\u0442\u043d\u0430\u044f \u043f\u0440\u043e\u0434\u043b\u0451\u043d\u043d\u0430\u044f \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 - \u044d\u0442\u043e \u043c\u043e\u0436\u043d\u043e \u0438\u0433\u043d\u043e\u0440\u0438\u0440\u043e\u0432\u0430\u0442\u044c)'
     if ($days -lt 0) {
         $when = $(if ($end.Year -ge 2010) { ' ' + $end.ToString('dd.MM.yyyy') } else { '' })
-        return (New-Check 'bad' (((U '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u044d\u0442\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 Windows \u0437\u0430\u043a\u043e\u043d\u0447\u0438\u043b\u0430\u0441\u044c') + $when + ': ') + $cap) $act)
+        return (New-Check 'bad' (((U '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u044d\u0442\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 Windows \u0437\u0430\u043a\u043e\u043d\u0447\u0438\u043b\u0430\u0441\u044c') + $when + ': ') + $cap) $act (U '\u041e\u0421 \u0431\u0435\u0437 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438'))
     }
     if ($days -le $warnDays) {
-        return (New-Check 'warn' (((U '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u044d\u0442\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 Windows \u0437\u0430\u043a\u043e\u043d\u0447\u0438\u0442\u0441\u044f ') + $end.ToString('dd.MM.yyyy') + (U ' (\u0447\u0435\u0440\u0435\u0437 ') + $days + (U ' \u0434\u043d.): ')) + $cap) $act)
+        return (New-Check 'warn' (((U '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u044d\u0442\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 Windows \u0437\u0430\u043a\u043e\u043d\u0447\u0438\u0442\u0441\u044f ') + $end.ToString('dd.MM.yyyy') + (U ' (\u0447\u0435\u0440\u0435\u0437 ') + $days + (U ' \u0434\u043d.): ')) + $cap) $act (U '\u041a\u043e\u043d\u0435\u0446 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438 \u041e\u0421'))
     }
     New-Check 'ok' ((U '\u041e\u0421 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044f \u0434\u043e ') + $end.ToString('dd.MM.yyyy') + ': ' + $cap)
 }
@@ -259,13 +259,13 @@ function Get-AvCheck {
     $script:LastAvNames = $names
     $third = (@($act | Where-Object { $_.Name -notmatch 'Defender' }).Count -gt 0)
     if (-not $list.Count) {
-        $c = New-Check 'warn' (U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u043d\u0435 \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d') (U '\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443 \u0432\u0440\u0443\u0447\u043d\u0443\u044e (\u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u0445 \u0438 \u0441 \u043d\u0435\u0441\u0442\u0430\u043d\u0434\u0430\u0440\u0442\u043d\u043e\u0439 \u0437\u0430\u0449\u0438\u0442\u043e\u0439 \u0441\u0432\u0435\u0434\u0435\u043d\u0438\u044f \u043c\u043e\u0433\u0443\u0442 \u0431\u044b\u0442\u044c \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b)')
+        $c = New-Check 'warn' (U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u043d\u0435 \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d') (U '\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443 \u0432\u0440\u0443\u0447\u043d\u0443\u044e (\u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u0445 \u0438 \u0441 \u043d\u0435\u0441\u0442\u0430\u043d\u0434\u0430\u0440\u0442\u043d\u043e\u0439 \u0437\u0430\u0449\u0438\u0442\u043e\u0439 \u0441\u0432\u0435\u0434\u0435\u043d\u0438\u044f \u043c\u043e\u0433\u0443\u0442 \u0431\u044b\u0442\u044c \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b)') (U '\u041d\u0435\u0442 \u0430\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441\u0430')
     }
     elseif (-not $act.Count) {
-        $c = New-Check 'bad' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u0435\u0441\u0442\u044c, \u043d\u043e \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d: ') + ($names -join ', ')) (U '\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443')
+        $c = New-Check 'bad' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u0435\u0441\u0442\u044c, \u043d\u043e \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d: ') + ($names -join ', ')) (U '\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443') (U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u0432\u044b\u043a\u043b')
     }
     elseif (@($act | Where-Object { $_.Old }).Count) {
-        $c = New-Check 'warn' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441: ') + ($names -join ', ') + (U ' \u2014 \u0431\u0430\u0437\u044b \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438')) (U '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0430\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441\u043d\u044b\u0435 \u0431\u0430\u0437\u044b')
+        $c = New-Check 'warn' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441: ') + ($names -join ', ') + (U ' \u2014 \u0431\u0430\u0437\u044b \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438')) (U '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0430\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441\u043d\u044b\u0435 \u0431\u0430\u0437\u044b') (U '\u0411\u0430\u0437\u044b \u0410\u0412 \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438')
     }
     else { $c = New-Check 'ok' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441: ') + ($names -join ', ')) }
     [pscustomobject]@{ Check = $c; Third = $third }
@@ -290,9 +290,9 @@ function Get-FirewallCheck([bool]$thirdPartyAv) {
     }
     if (-not $off.Count) { return (New-Check 'ok' (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows \u0432\u043a\u043b\u044e\u0447\u0451\u043d')) }
     $txt = (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d \u0432 \u043f\u0440\u043e\u0444\u0438\u043b\u044f\u0445: ') + ($off -join ', ')
-    if ($thirdPartyAv) { return (New-Check 'warn' ($txt + (U ' (\u0432\u043e\u0437\u043c\u043e\u0436\u043d\u043e, \u0435\u0433\u043e \u0437\u0430\u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0442\u043e\u0440\u043e\u043d\u043d\u044f\u044f \u0437\u0430\u0449\u0438\u0442\u0430)')) (U '\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c, \u0447\u0442\u043e \u0441\u0435\u0442\u0435\u0432\u0443\u044e \u0437\u0430\u0449\u0438\u0442\u0443 \u0432\u0435\u0434\u0451\u0442 \u0434\u0440\u0443\u0433\u0430\u044f \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0430')) }
+    if ($thirdPartyAv) { return (New-Check 'warn' ($txt + (U ' (\u0432\u043e\u0437\u043c\u043e\u0436\u043d\u043e, \u0435\u0433\u043e \u0437\u0430\u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0442\u043e\u0440\u043e\u043d\u043d\u044f\u044f \u0437\u0430\u0449\u0438\u0442\u0430)')) (U '\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c, \u0447\u0442\u043e \u0441\u0435\u0442\u0435\u0432\u0443\u044e \u0437\u0430\u0449\u0438\u0442\u0443 \u0432\u0435\u0434\u0451\u0442 \u0434\u0440\u0443\u0433\u0430\u044f \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0430') (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 \u0432\u044b\u043a\u043b')) }
     $lvl = $(if ($off.Count -ge $total) { 'bad' } else { 'warn' })
-    New-Check $lvl $txt (U '\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0431\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows')
+    New-Check $lvl $txt (U '\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0431\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows') (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 \u0432\u044b\u043a\u043b')
 }
 
 function Get-SysDiskCheck($v) {
@@ -300,8 +300,8 @@ function Get-SysDiskCheck($v) {
     $pct = [int][math]::Round(100 * $v.FreeSpace / $v.Size); $gb = [math]::Round($v.FreeSpace / 1GB, 1)
     $txt = ((U '\u0421\u0432\u043e\u0431\u043e\u0434\u043d\u043e \u043d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435: {0} \u0413\u0411 ({1}%)') -f $gb, $pct)
     $act = U '\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0434\u0438\u0441\u043a (\u0432\u0440\u0435\u043c\u0435\u043d\u043d\u044b\u0435 \u0444\u0430\u0439\u043b\u044b, \u043d\u0435\u043d\u0443\u0436\u043d\u044b\u0435 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u044b) \u0438\u043b\u0438 \u0437\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u043d\u0430 \u0431\u043e\u043b\u044c\u0448\u0438\u0439'
-    if ($pct -lt $thrBad -or $gb -lt $gbBad) { return (New-Check 'bad' ((U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a \u043f\u043e\u0447\u0442\u0438 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d. ') + $txt) $act) }
-    if ($pct -lt $thrWarn) { return (New-Check 'warn' ((U '\u041d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435 \u043c\u0430\u043b\u043e \u043c\u0435\u0441\u0442\u0430. ') + $txt) $act) }
+    if ($pct -lt $thrBad -or $gb -lt $gbBad) { return (New-Check 'bad' ((U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a \u043f\u043e\u0447\u0442\u0438 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d. ') + $txt) $act ((U '\u0414\u0438\u0441\u043a ') + $pct + '%')) }
+    if ($pct -lt $thrWarn) { return (New-Check 'warn' ((U '\u041d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435 \u043c\u0430\u043b\u043e \u043c\u0435\u0441\u0442\u0430. ') + $txt) $act ((U '\u0414\u0438\u0441\u043a ') + $pct + '%')) }
     New-Check 'ok' $txt
 }
 
@@ -309,11 +309,11 @@ function Get-QuickChecks($os, $up, [double]$ramTotal) {
     $r = @()
     $upWarn = [int](Cfg 'checks.uptimeDaysWarn' 30)
     if ($up.TotalDays -gt 20000) { Write-Log DEBUG 'report: boot time unknown, uptime check skipped' }
-    elseif ($up.Days -gt $upWarn) { $r += (New-Check 'warn' ((U '\u041a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0430\u043b\u0441\u044f ') + $up.Days + (U ' \u0434\u043d.')) (U '\u041f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u041f\u041a (\u043f\u0440\u0438\u043c\u0435\u043d\u044f\u0442\u0441\u044f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f, \u043e\u0441\u0432\u043e\u0431\u043e\u0436\u0434\u0430\u0435\u0442\u0441\u044f \u043f\u0430\u043c\u044f\u0442\u044c)')) }
+    elseif ($up.Days -gt $upWarn) { $r += (New-Check 'warn' ((U '\u041a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0430\u043b\u0441\u044f ') + $up.Days + (U ' \u0434\u043d.')) (U '\u041f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u041f\u041a (\u043f\u0440\u0438\u043c\u0435\u043d\u044f\u0442\u0441\u044f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f, \u043e\u0441\u0432\u043e\u0431\u043e\u0436\u0434\u0430\u0435\u0442\u0441\u044f \u043f\u0430\u043c\u044f\u0442\u044c)') ((U '\u0410\u043f\u0442\u0430\u0439\u043c ') + $up.Days + (U '\u0434'))) }
     else { $r += (New-Check 'ok' ((U '\u0412\u0440\u0435\u043c\u044f \u0440\u0430\u0431\u043e\u0442\u044b \u0431\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438: ') + $up.Days + (U ' \u0434\u043d.'))) }
     $ramWarn = [double](Cfg 'checks.ramGbWarn' 4)
     if ($ramTotal -le 0) { Write-Log DEBUG 'report: RAM size unknown, RAM check skipped' }
-    elseif ($ramTotal -lt $ramWarn) { $r += (New-Check 'warn' ((U '\u041c\u0430\u043b\u043e \u043e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438: ') + $ramTotal + (U ' \u0413\u0411')) (U '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c, \u0435\u0441\u043b\u0438 \u041f\u041a \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e')) }
+    elseif ($ramTotal -lt $ramWarn) { $r += (New-Check 'warn' ((U '\u041c\u0430\u043b\u043e \u043e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438: ') + $ramTotal + (U ' \u0413\u0411')) (U '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c, \u0435\u0441\u043b\u0438 \u041f\u041a \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e') ((U '\u041e\u0417\u0423 ') + $ramTotal + (U '\u0413\u0411'))) }
     else { $r += (New-Check 'ok' ((U '\u041e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438 \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e: ') + $ramTotal + (U ' \u0413\u0411'))) }
     $oc = Get-OsSupportCheck $os; if ($oc) { $r += $oc }
     $av = Get-AvCheck; $r += $av.Check
@@ -344,6 +344,28 @@ function Get-CheckLead($checks) {
     $t = (U '\u0421\u043d\u0430\u0447\u0430\u043b\u0430: ') + $f[0].T
     if ($f[0].A) { $t += ' - ' + $f[0].A }
     '<p class="lead ' + $lv + '">' + (Enc $t) + '</p>'
+}
+
+# ---- short state text for the Excel "state" column: real findings, as brief as possible ----
+function Get-DefaultState { [string](Cfg 'excel.defaultState' (U '\u0425\u043e\u0440\u043e\u0448\u0435\u0435')) }
+function Get-StateSummary($checks) {
+    $maxItems = [int](Cfg 'excel.stateMaxItems' 3)
+    $bad  = @($checks | Where-Object { $_.L -eq 'bad'  -and $_.S } | ForEach-Object { $_.S })
+    $warn = @($checks | Where-Object { $_.L -eq 'warn' -and $_.S } | ForEach-Object { $_.S })
+    $all  = @($bad + $warn)
+    if (-not $all.Count) { return (Get-DefaultState) }
+    $prefix = if ($bad.Count) { (U '\u041f\u043b\u043e\u0445\u043e\u0435:') } else { (U '\u0412\u043d\u0438\u043c\u0430\u043d\u0438\u0435:') }
+    $shown = @($all | Select-Object -First $maxItems)
+    $txt = $prefix + ' ' + ($shown -join ', ')
+    if ($all.Count -gt $maxItems) { $txt += ' +' + ($all.Count - $maxItems) }
+    $txt
+}
+# true when the text in the cell was produced by this tool (so it may be refreshed); a hand-written note is never replaced
+function Test-AutoState([string]$s) {
+    if (-not $s) { return $true }
+    $s = $s.Trim()
+    if ($s -ieq (Get-DefaultState)) { return $true }
+    $s.StartsWith((U '\u041f\u043b\u043e\u0445\u043e\u0435:')) -or $s.StartsWith((U '\u0412\u043d\u0438\u043c\u0430\u043d\u0438\u0435:'))
 }
 
 # ===================== CHANGES SINCE THE PREVIOUS REPORT OF THIS PC (snapshot in Raports\_state\<PC>.json) =====================
@@ -495,6 +517,7 @@ function New-InspectorReport($path) {
 
     # ---- checks (src\Checks.ps1: thresholds come from config.json "checks") ----
     foreach ($c in @(Get-QuickChecks $os $up $ramTotal)) { if ($c) { [void]$checks.Add($c) } }
+    $script:LastChecks = @($checks)
     $nOk = @($checks | Where-Object L -eq 'ok').Count; $nWarn = @($checks | Where-Object L -eq 'warn').Count; $nBad = @($checks | Where-Object L -eq 'bad').Count
     $checkHtml = (Get-CheckLead $checks) + (ConvertTo-CheckHtml $checks)
 
@@ -827,6 +850,49 @@ function Get-DiskProtectionStatus {
     return $NO
 }
 
+# ---- PC identity (serial number, model): BIOS / board / product CIM classes; placeholder values of cheap boards are ignored ----
+function Get-PcIdentity {
+    if ($script:Identity) { return $script:Identity }
+    $junk = '^(To be filled.*|Default string|System Serial Number|System Product Name|System manufacturer|Not Specified|Not Applicable|None|N/A|Unknown|0+|O\.?E\.?M\.?.*|Chassis Serial Number|Serial Number|Type1ProductConfigId|123456789.*|0123456789.*|x\.x|\s*)$'
+    $serial = ''
+    foreach ($src in @(@('Win32_BIOS', 'SerialNumber'), @('Win32_ComputerSystemProduct', 'IdentifyingNumber'), @('Win32_BaseBoard', 'SerialNumber'))) {
+        try {
+            $v = [string]((Get-CimSafe $src[0] | Select-Object -First 1).($src[1])); $v = $v.Trim()
+            if ($v -and $v -notmatch $junk) { $serial = $v; break }
+        } catch { Write-Log DEBUG "identity: $($src[0]) failed: $($_.Exception.Message)" }
+    }
+    $model = ''
+    try {
+        $cs = Get-CimSafe Win32_ComputerSystem | Select-Object -First 1
+        $mf = ([string]$cs.Manufacturer).Trim(); $md = ([string]$cs.Model).Trim()
+        if ($mf -match $junk) { $mf = '' }
+        if ($md -match $junk) { $md = ''; try { $bp = ([string](Get-CimSafe Win32_BaseBoard | Select-Object -First 1).Product).Trim(); if ($bp -notmatch $junk) { $md = $bp } } catch { } }
+        $model = if ($mf -and $md -and $md -notlike "$mf*") { "$mf $md" } else { "$mf$md".Trim() }
+    } catch { Write-Log DEBUG "identity: model failed: $($_.Exception.Message)" }
+    $script:Identity = [pscustomobject]@{ Serial = $serial; Model = $model }
+    $script:Identity
+}
+
+# ---- open a file in Google Chrome (config.json: ui.browser = "chrome" | "default"); falls back to the default program ----
+function Get-ChromePath {
+    $c = @()
+    foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe') {
+        try { $v = (Get-ItemProperty -LiteralPath $k -ErrorAction Stop).'(default)'; if ($v) { $c += [string]$v } } catch { }
+    }
+    foreach ($b in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) { if ($b) { $c += (Join-Path $b 'Google\Chrome\Application\chrome.exe') } }
+    foreach ($x in $c) { if ($x -and (Test-Path -LiteralPath $x -PathType Leaf)) { return $x } }
+    $null
+}
+function Open-InBrowser([string]$path) {
+    if ([string](Cfg 'ui.browser' 'chrome') -ieq 'chrome') {
+        $chrome = Get-ChromePath
+        if ($chrome) {
+            try { Start-Process -FilePath $chrome -ArgumentList ('"' + $path + '"'); return } catch { Write-Log WARN "Chrome could not be started: $($_.Exception.Message)" }
+        } else { Write-Log WARN 'Google Chrome was not found: the report is opened in the default browser' }
+    }
+    Start-Process $path
+}
+
 # ===================== PC PASSPORT =====================
 # ---- passport: C:\ -> script folder (USB) -> desktops (current user, all users, Public, OneDrive) ----
 function Get-DesktopDirs {
@@ -904,7 +970,10 @@ function Ask-Passport {
 
 function Get-PcPassport {
     $p = [ordered]@{ Floor = ''; Room = ''; Place = ''; User = ''; Source = '' }
-    $names = @("pc_info_$env:COMPUTERNAME.json", "pc_info_$env:COMPUTERNAME.txt", 'pc_info.json', 'pc_info.txt', 'pc_info.json.txt', 'pc_info.txt.txt')
+    $sn = [string](Get-PcIdentity).Serial -replace '[^A-Za-z0-9_-]', ''
+    $names = @("pc_info_$env:COMPUTERNAME.json", "pc_info_$env:COMPUTERNAME.txt")
+    if ($sn) { $names += @("pc_info_$sn.json", "pc_info_$sn.txt") }         # a passport named after the serial number survives a PC rename
+    $names += @('pc_info.json', 'pc_info.txt', 'pc_info.json.txt', 'pc_info.txt.txt')
     $locs  = (@($PassDir, 'C:\', $Root) + @(Get-DesktopDirs)) | Where-Object { $_ } | Select-Object -Unique
     foreach ($loc in $locs) {
         foreach ($n in $names) {
@@ -1024,7 +1093,7 @@ function New-InventoryXlsx($path, [string[]]$headers) {
         Write-ZipText $zip 'xl/workbook.xml' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="' + $XNS + '" xmlns:r="' + $RNS + '"><sheets><sheet name="' + (Get-SheetName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>')
         Write-ZipText $zip 'xl/_rels/workbook.xml.rels' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
         Write-ZipText $zip 'xl/styles.xml' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + $XNS + '"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf></cellXfs></styleSheet>')
-        $cols = ''; $w = 12, 10, 13, 15, 24, 14, 14, 26, 36, 18, 22
+        $cols = ''; $w = 12, 10, 13, 15, 24, 14, 14, 26, 36, 18, 22, 20, 26
         for ($i = 0; $i -lt $headers.Count; $i++) { $cols += '<col min="' + ($i + 1) + '" max="' + ($i + 1) + '" width="' + $w[$i] + '" customWidth="1"/>' }
         $h = ''
         for ($i = 0; $i -lt $headers.Count; $i++) { $h += '<c r="' + (Col-Letter ($i + 1)) + '1" s="1" t="inlineStr"><is><t>' + [Security.SecurityElement]::Escape($headers[$i]) + '</t></is></c>' }
@@ -1170,7 +1239,7 @@ function Test-InventoryDoc($zip, $doc, $ns, $data, $row, [int]$pcCol, [string]$p
 }
 
 function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$created) {
-    $keys = 'Num', 'Floor', 'Room', 'Place', 'User', 'RemoteA', 'RemoteB', 'State', 'Disk', 'Pc', 'Rpt'
+    $keys = 'Num', 'Floor', 'Room', 'Place', 'User', 'RemoteA', 'RemoteB', 'State', 'Disk', 'Pc', 'Rpt', 'Serial', 'Model'
     $fs = [IO.File]::Open($file, 'Open', 'ReadWrite', 'None')
     $zip = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Update)
     try {
@@ -1230,6 +1299,14 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
             if ($hdr) { $hs = Add-LinkStyle $zip $lastHdrStyle $false; Set-Cell $doc $hdr $Cm.Rpt $headers[10] $(if ($hs) { $hs } else { $lastHdrStyle }) }
         }
 
+        foreach ($xk in 'Serial', 'Model') {       # identity columns are appended at the end when the sheet has none
+            if ($Cm[$xk]) { continue }
+            $xi = [array]::IndexOf($keys, $xk)
+            $Cm[$xk] = [math]::Max($maxCol + 1, $xi + 1)
+            if ($hdr) { Set-Cell $doc $hdr $Cm[$xk] $headers[$xi] $lastHdrStyle }
+            $maxCol = [math]::Max($maxCol, $Cm[$xk])
+        }
+
         # model of existing data rows
         $items = @()
         foreach ($r in $rows) {
@@ -1248,6 +1325,11 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
         # find existing row: PC name > remote access ID > floor+room+place > user (only if unique and has no PC name yet)
         $hit = $null; $how = ''
         $hit = $items | Where-Object { & $same (Cv $_ $Cm.Pc) $rec.Pc } | Select-Object -First 1; if ($hit) { $how = 'PC name' }
+        if ($hit -and $Cm.Serial -and $rec.Serial) {        # same PC name, but another serial number: probably a different computer
+            $sc = Cv $hit $Cm.Serial
+            if ($sc -and -not (& $same $sc $rec.Serial)) { Write-Log WARN "excel: row $($hit.N) has the same PC name, but another serial number ($sc / $($rec.Serial)): treated as a different PC"; $hit = $null; $how = '' }
+        }
+        if (-not $hit -and $Cm.Serial -and $rec.Serial) { $hit = $items | Where-Object { & $same (Cv $_ $Cm.Serial) $rec.Serial } | Select-Object -First 1; if ($hit) { $how = 'serial number' } }
         if (-not $hit -and $Cm.RemoteA -and $rec.RemoteA -ne $none -and $rec.RemoteA -ne $script:NoId) { $hit = $items | Where-Object { (Cv $_ $Cm.RemoteA) -eq $rec.RemoteA } | Select-Object -First 1; if ($hit) { $how = 'remote access ID' } }
         if (-not $hit -and $Cm.Floor -and $Cm.Room -and $Cm.Place -and $rec.Floor -and $rec.Room -and $rec.Place) {
             $hit = $items | Where-Object { (& $same (Cv $_ $Cm.Floor) $rec.Floor) -and (& $same (Cv $_ $Cm.Room) $rec.Room) -and (& $same (Cv $_ $Cm.Place) $rec.Place) } | Select-Object -First 1
@@ -1274,11 +1356,14 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
             $n.User  = if ($rec.UserFromPassport -or -not (Cv $hit $Cm.User)) { $rec.User } else { Cv $hit $Cm.User }
             $n.RemoteA   = Merge-Id (Cv $hit $Cm.RemoteA) $rec.RemoteA $none
             $n.RemoteB   = Merge-Id (Cv $hit $Cm.RemoteB) $rec.RemoteB $none
-            $n.State = if (Cv $hit $Cm.State) { Cv $hit $Cm.State } else { $rec.State }
+            $cur = Cv $hit $Cm.State
+            $n.State = if ($rec.State -and (Test-AutoState $cur)) { $rec.State } elseif ($cur) { $cur } else { Get-DefaultState }
+            $n.Serial = if ($rec.Serial) { $rec.Serial } else { Cv $hit $Cm.Serial }
+            $n.Model  = if ($rec.Model)  { $rec.Model }  else { Cv $hit $Cm.Model }
             $n.Disk = Merge-DiskProtection (Cv $hit $Cm.Disk) $rec.Disk $none
             $n.Pc    = $rec.Pc
             $changed = 0
-            foreach ($k in 'Floor', 'Room', 'Place', 'User', 'RemoteA', 'RemoteB', 'State', 'Disk', 'Pc') {
+            foreach ($k in 'Floor', 'Room', 'Place', 'User', 'RemoteA', 'RemoteB', 'State', 'Disk', 'Pc', 'Serial', 'Model') {
                 if (Set-CellIf $doc $row $Cm[$k] (Cv $hit $Cm[$k]) ([string]$n[$k]) (& $sty $Cm[$k])) { $changed++ }
             }
             [void]$row.RemoveAttribute('spans')
@@ -1294,7 +1379,7 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
             $sty = { param($i) if ($st.ContainsKey($i)) { $st[$i] } elseif ($created) { '2' } else { '' } }
             $row = $doc.CreateElement('row', $XNS); $row.SetAttribute('r', [string]$new); [void]$data.AppendChild($row)
             if ($Cm.Num) { Set-Cell $doc $row $Cm.Num ([string]([int]$num + 1)) (& $sty $Cm.Num) $true }
-            $vals = @{ Floor = $rec.Floor; Room = $rec.Room; Place = $rec.Place; User = $rec.User; RemoteA = $rec.RemoteA; RemoteB = $rec.RemoteB; State = $rec.State; Disk = $rec.Disk; Pc = $rec.Pc }
+            $vals = @{ Floor = $rec.Floor; Room = $rec.Room; Place = $rec.Place; User = $rec.User; RemoteA = $rec.RemoteA; RemoteB = $rec.RemoteB; State = $(if ($rec.State) { $rec.State } else { Get-DefaultState }); Disk = $rec.Disk; Pc = $rec.Pc; Serial = $rec.Serial; Model = $rec.Model }
             foreach ($k in $vals.Keys) { if ($Cm[$k]) { Set-Cell $doc $row $Cm[$k] ([string]$vals[$k]) (& $sty $Cm[$k]) } }
             if ($rec.ReportRel -and $Cm.Rpt) { $ls = Get-LinkStyleOf $row $Cm.Rpt; if (-not $ls) { $ls = Add-LinkStyle $zip (& $sty $Cm.Pc) $true }; Set-LinkCell $doc $row $Cm.Rpt $rec.ReportRel $rec.ReportLabel $ls }
             $last = $new
@@ -1336,9 +1421,10 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
 }
 
 function Update-InventoryXlsx($path, $rec, $none) {
-    $builtin = @('#', '\u042d\u0442\u0430\u0436', '\u041f\u043e\u043c\u0435\u0449\u0435\u043d\u0438\u0435', '\u0420\u0430\u0431\u043e\u0447\u0435\u0435 \u043c\u0435\u0441\u0442\u043e', '\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c', '\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f 1 (ID)', '\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f 2 (ID)', '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u0440\u0430\u0431\u043e\u0447\u0435\u0439 \u0441\u0442\u0430\u043d\u0446\u0438\u0438', '\u0417\u0430\u0449\u0438\u0442\u0430 \u0434\u0438\u0441\u043a\u0430', '\u0418\u043c\u044f \u041f\u041a', '\u041e\u0442\u0447\u0451\u0442') | ForEach-Object { U $_ }
+    $builtin = @('#', '\u042d\u0442\u0430\u0436', '\u041f\u043e\u043c\u0435\u0449\u0435\u043d\u0438\u0435', '\u0420\u0430\u0431\u043e\u0447\u0435\u0435 \u043c\u0435\u0441\u0442\u043e', '\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c', '\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f 1 (ID)', '\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f 2 (ID)', '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u0440\u0430\u0431\u043e\u0447\u0435\u0439 \u0441\u0442\u0430\u043d\u0446\u0438\u0438', '\u0417\u0430\u0449\u0438\u0442\u0430 \u0434\u0438\u0441\u043a\u0430', '\u0418\u043c\u044f \u041f\u041a', '\u041e\u0442\u0447\u0451\u0442', '\u0421\u0435\u0440\u0438\u0439\u043d\u044b\u0439 \u043d\u043e\u043c\u0435\u0440', '\u041c\u043e\u0434\u0435\u043b\u044c') | ForEach-Object { U $_ }
     $headers = @($builtin)
     $hc = @(Cfg 'excel.headers' @())      # config.json: custom column titles (used when a NEW workbook is created; existing sheets are matched by header text)
+    if ($hc.Count -eq 11) { $hc = @($hc) + @($headers[11..12]) }      # configs made before 1.3.0 have no identity columns
     if ($hc.Count -eq $headers.Count) { $headers = @($hc | ForEach-Object { [string]$_ }) }
     elseif ($hc.Count) { Write-Host "  excel.headers must contain $($headers.Count) items, built-in headers are used" -ForegroundColor Yellow }
 
@@ -1380,9 +1466,9 @@ function Save-PendingRow($rec) {
     $f = Join-Path $OutDir '_pending_rows.csv'
     $isNew = -not (Test-Path $f)
     $esc = { param($s) '"' + ([string]$s).Replace('"', '""') + '"' }
-    $line = (@($rec.Floor, $rec.Room, $rec.Place, $rec.User, $rec.RemoteA, $rec.RemoteB, $rec.State, $rec.Disk, $rec.Pc, (Get-Date -Format 'yyyy-MM-dd HH:mm')) | ForEach-Object { & $esc $_ }) -join ';'
+    $line = (@($rec.Floor, $rec.Room, $rec.Place, $rec.User, $rec.RemoteA, $rec.RemoteB, $rec.State, $rec.Disk, $rec.Pc, $rec.Serial, $rec.Model, (Get-Date -Format 'yyyy-MM-dd HH:mm')) | ForEach-Object { & $esc $_ }) -join ';'
     $txt = ''
-    if ($isNew) { $txt = '"Floor";"Room";"Place";"User";"RemoteAccessA";"RemoteAccessB";"State";"DiskProtection";"PC";"Collected"' + "`r`n" }
+    if ($isNew) { $txt = '"Floor";"Room";"Place";"User";"RemoteAccessA";"RemoteAccessB";"State";"DiskProtection";"PC";"Serial";"Model";"Collected"' + "`r`n" }
     [IO.File]::AppendAllText($f, $txt + $line + "`r`n", (New-Object Text.UTF8Encoding($true)))
     $f
 }
@@ -1393,13 +1479,16 @@ function Invoke-Inventory {
     $pp  = Get-PcPassport
     $rec = [pscustomobject]@{
         Floor = $pp.Floor; Room = $pp.Room; Place = $pp.Place; User = $pp.User; UserFromPassport = $pp.UserFromPassport
-        RemoteA = $(if (Cfg 'features.remoteAccessDetect' $true) { Tm 'RemoteA' { Get-RemoteIdA } } else { $NO }); RemoteB = $(if (Cfg 'features.remoteAccessDetect' $true) { Tm 'RemoteB' { Get-RemoteIdB } } else { $NO }); State = [string](Cfg 'excel.defaultState' (U '\u0425\u043e\u0440\u043e\u0448\u0435\u0435'))
+        RemoteA = $(if (Cfg 'features.remoteAccessDetect' $true) { Tm 'RemoteA' { Get-RemoteIdA } } else { $NO }); RemoteB = $(if (Cfg 'features.remoteAccessDetect' $true) { Tm 'RemoteB' { Get-RemoteIdB } } else { $NO }); State = $(if ($script:LastChecks -and @($script:LastChecks).Count) { Get-StateSummary $script:LastChecks } else { '' })
+        Serial = (Get-PcIdentity).Serial; Model = (Get-PcIdentity).Model
         Disk = $(if (Cfg 'features.diskProtectionDetect' $true) { Tm 'DiskProtection' { Get-DiskProtectionStatus } } else { $NO }); Pc = $env:COMPUTERNAME; ReportRel = ''; ReportLabel = ''
     }
     function Via($x) { if ($x) { "<- $x" } else { '<- not found' } }
     Write-Host "  passport  : $(if ($pp.Source) { $pp.Source } else { 'not found (C:\, USB root, desktops), using Windows user name' })"
     Write-Host "  PC / user : $($rec.Pc) / $($rec.User)"
     Write-Host "  floor/room/place : $($rec.Floor) / $($rec.Room) / $($rec.Place)"
+    Write-Host "  serial/model : $($rec.Serial) / $($rec.Model)"
+    Write-Host "  state     : $(if ($rec.State) { $rec.State } else { '(not changed: no report in this run)' })"
     Write-Host "  remote A  : $($rec.RemoteA)  $(Via $script:Src.RemoteA)"
     Write-Host "  remote B  : $($rec.RemoteB)  $(Via $script:Src.RemoteB)"
     Write-Host "  disk prot.: $($rec.Disk)  $(Via $script:Src.Disk)"
@@ -1450,7 +1539,7 @@ Write-Host "Result: report=$rptRc, inventory=$invRc, total $([int]((Get-Date) - 
 if ($Diagnose) { try { Write-Host "Diagnose  : $(Save-DiagnoseLog $OutDir)" -ForegroundColor Cyan } catch { Write-Host "Diagnose log failed: $($_.Exception.Message)" -ForegroundColor Red } }
 if ($invRc -eq 5) { Write-Host "Excel was NOT updated. Close the .xlsx file and run again. Row saved to: $(Join-Path $OutDir '_pending_rows.csv')" -ForegroundColor Yellow }
 if ($rptRc -eq 0 -and $invRc -eq 0) {
-    if ((Cfg 'ui.openReportWhenDone' $true) -and -not $SkipReport -and (Test-Path $Out)) { try { Start-Process $Out } catch { } }
+    if ((Cfg 'ui.openReportWhenDone' $true) -and -not $SkipReport -and (Test-Path $Out)) { try { Open-InBrowser $Out } catch { } }
     elseif (Cfg 'ui.openFolderWhenDone' $true) { try { Start-Process explorer.exe -ArgumentList ('"' + $OutDir + '"') } catch { } }
 }
 if ($rptRc -ne 0) { Finish $rptRc }

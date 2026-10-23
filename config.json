@@ -31,11 +31,14 @@
       "Состояние рабочей станции",
       "Защита диска",
       "Имя ПК",
-      "Отчёт"
+      "Отчёт",
+      "Серийный номер",
+      "Модель"
     ],
     "defaultState": "Хорошее",
     "reportLabel": "Отчёт",
-    "labelDateFormat": "yyyy-MM-dd"
+    "labelDateFormat": "yyyy-MM-dd",
+    "stateMaxItems": 3
   },
   "remoteAccessDetect": {
     "extraConfigDirsA": [],
@@ -70,7 +73,8 @@
   },
   "ui": {
     "openReportWhenDone": true,
-    "openFolderWhenDone": false
+    "openFolderWhenDone": false,
+    "browser": "chrome"
   },
   "timeouts": {
     "remoteCliSec": 8,
