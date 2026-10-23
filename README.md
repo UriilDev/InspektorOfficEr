@@ -302,4 +302,4 @@ Pull request'ы приветствуются (работайте с клона �
 
 ## 📄 Лицензия
 
-[MIT](LICENSE) © 2026 UriilDev
+[MIT](LICENSE) © 2026 UriilDev https://github.com/UriilDev/InspektorOfficEr
