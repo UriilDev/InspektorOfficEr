@@ -1,5 +1,5 @@
 # ===================== CORE: strings, config, shared state =====================
-$AppName = 'InspektorOfficEr'; $AppVer = '1.2.0'
+$AppName = 'InspektorOfficEr'; $AppVer = '1.3.0'
 
 # ---------- Cyrillic-safe strings: sources are pure ASCII, texts are written as \uXXXX ----------
 function U([string]$s) { [regex]::Replace($s, '\\u([0-9a-fA-F]{4})', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) }) }

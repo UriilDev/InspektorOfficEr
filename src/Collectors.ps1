@@ -233,3 +233,46 @@ function Get-DiskProtectionStatus {
     if ($res.Count) { $script:Src.Disk = ($why -join ' || '); return ($res -join '; ') }
     return $NO
 }
+
+# ---- PC identity (serial number, model): BIOS / board / product CIM classes; placeholder values of cheap boards are ignored ----
+function Get-PcIdentity {
+    if ($script:Identity) { return $script:Identity }
+    $junk = '^(To be filled.*|Default string|System Serial Number|System Product Name|System manufacturer|Not Specified|Not Applicable|None|N/A|Unknown|0+|O\.?E\.?M\.?.*|Chassis Serial Number|Serial Number|Type1ProductConfigId|123456789.*|0123456789.*|x\.x|\s*)$'
+    $serial = ''
+    foreach ($src in @(@('Win32_BIOS', 'SerialNumber'), @('Win32_ComputerSystemProduct', 'IdentifyingNumber'), @('Win32_BaseBoard', 'SerialNumber'))) {
+        try {
+            $v = [string]((Get-CimSafe $src[0] | Select-Object -First 1).($src[1])); $v = $v.Trim()
+            if ($v -and $v -notmatch $junk) { $serial = $v; break }
+        } catch { Write-Log DEBUG "identity: $($src[0]) failed: $($_.Exception.Message)" }
+    }
+    $model = ''
+    try {
+        $cs = Get-CimSafe Win32_ComputerSystem | Select-Object -First 1
+        $mf = ([string]$cs.Manufacturer).Trim(); $md = ([string]$cs.Model).Trim()
+        if ($mf -match $junk) { $mf = '' }
+        if ($md -match $junk) { $md = ''; try { $bp = ([string](Get-CimSafe Win32_BaseBoard | Select-Object -First 1).Product).Trim(); if ($bp -notmatch $junk) { $md = $bp } } catch { } }
+        $model = if ($mf -and $md -and $md -notlike "$mf*") { "$mf $md" } else { "$mf$md".Trim() }
+    } catch { Write-Log DEBUG "identity: model failed: $($_.Exception.Message)" }
+    $script:Identity = [pscustomobject]@{ Serial = $serial; Model = $model }
+    $script:Identity
+}
+
+# ---- open a file in Google Chrome (config.json: ui.browser = "chrome" | "default"); falls back to the default program ----
+function Get-ChromePath {
+    $c = @()
+    foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe') {
+        try { $v = (Get-ItemProperty -LiteralPath $k -ErrorAction Stop).'(default)'; if ($v) { $c += [string]$v } } catch { }
+    }
+    foreach ($b in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) { if ($b) { $c += (Join-Path $b 'Google\Chrome\Application\chrome.exe') } }
+    foreach ($x in $c) { if ($x -and (Test-Path -LiteralPath $x -PathType Leaf)) { return $x } }
+    $null
+}
+function Open-InBrowser([string]$path) {
+    if ([string](Cfg 'ui.browser' 'chrome') -ieq 'chrome') {
+        $chrome = Get-ChromePath
+        if ($chrome) {
+            try { Start-Process -FilePath $chrome -ArgumentList ('"' + $path + '"'); return } catch { Write-Log WARN "Chrome could not be started: $($_.Exception.Message)" }
+        } else { Write-Log WARN 'Google Chrome was not found: the report is opened in the default browser' }
+    }
+    Start-Process $path
+}

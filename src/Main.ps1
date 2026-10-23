@@ -19,7 +19,7 @@ Write-Host "Result: report=$rptRc, inventory=$invRc, total $([int]((Get-Date) - 
 if ($Diagnose) { try { Write-Host "Diagnose  : $(Save-DiagnoseLog $OutDir)" -ForegroundColor Cyan } catch { Write-Host "Diagnose log failed: $($_.Exception.Message)" -ForegroundColor Red } }
 if ($invRc -eq 5) { Write-Host "Excel was NOT updated. Close the .xlsx file and run again. Row saved to: $(Join-Path $OutDir '_pending_rows.csv')" -ForegroundColor Yellow }
 if ($rptRc -eq 0 -and $invRc -eq 0) {
-    if ((Cfg 'ui.openReportWhenDone' $true) -and -not $SkipReport -and (Test-Path $Out)) { try { Start-Process $Out } catch { } }
+    if ((Cfg 'ui.openReportWhenDone' $true) -and -not $SkipReport -and (Test-Path $Out)) { try { Open-InBrowser $Out } catch { } }
     elseif (Cfg 'ui.openFolderWhenDone' $true) { try { Start-Process explorer.exe -ArgumentList ('"' + $OutDir + '"') } catch { } }
 }
 if ($rptRc -ne 0) { Finish $rptRc }

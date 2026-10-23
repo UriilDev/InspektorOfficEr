@@ -94,7 +94,7 @@ function New-InventoryXlsx($path, [string[]]$headers) {
         Write-ZipText $zip 'xl/workbook.xml' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="' + $XNS + '" xmlns:r="' + $RNS + '"><sheets><sheet name="' + (Get-SheetName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>')
         Write-ZipText $zip 'xl/_rels/workbook.xml.rels' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
         Write-ZipText $zip 'xl/styles.xml' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + $XNS + '"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf></cellXfs></styleSheet>')
-        $cols = ''; $w = 12, 10, 13, 15, 24, 14, 14, 26, 36, 18, 22
+        $cols = ''; $w = 12, 10, 13, 15, 24, 14, 14, 26, 36, 18, 22, 20, 26
         for ($i = 0; $i -lt $headers.Count; $i++) { $cols += '<col min="' + ($i + 1) + '" max="' + ($i + 1) + '" width="' + $w[$i] + '" customWidth="1"/>' }
         $h = ''
         for ($i = 0; $i -lt $headers.Count; $i++) { $h += '<c r="' + (Col-Letter ($i + 1)) + '1" s="1" t="inlineStr"><is><t>' + [Security.SecurityElement]::Escape($headers[$i]) + '</t></is></c>' }
@@ -240,7 +240,7 @@ function Test-InventoryDoc($zip, $doc, $ns, $data, $row, [int]$pcCol, [string]$p
 }
 
 function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$created) {
-    $keys = 'Num', 'Floor', 'Room', 'Place', 'User', 'RemoteA', 'RemoteB', 'State', 'Disk', 'Pc', 'Rpt'
+    $keys = 'Num', 'Floor', 'Room', 'Place', 'User', 'RemoteA', 'RemoteB', 'State', 'Disk', 'Pc', 'Rpt', 'Serial', 'Model'
     $fs = [IO.File]::Open($file, 'Open', 'ReadWrite', 'None')
     $zip = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Update)
     try {
@@ -300,6 +300,14 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
             if ($hdr) { $hs = Add-LinkStyle $zip $lastHdrStyle $false; Set-Cell $doc $hdr $Cm.Rpt $headers[10] $(if ($hs) { $hs } else { $lastHdrStyle }) }
         }
 
+        foreach ($xk in 'Serial', 'Model') {       # identity columns are appended at the end when the sheet has none
+            if ($Cm[$xk]) { continue }
+            $xi = [array]::IndexOf($keys, $xk)
+            $Cm[$xk] = [math]::Max($maxCol + 1, $xi + 1)
+            if ($hdr) { Set-Cell $doc $hdr $Cm[$xk] $headers[$xi] $lastHdrStyle }
+            $maxCol = [math]::Max($maxCol, $Cm[$xk])
+        }
+
         # model of existing data rows
         $items = @()
         foreach ($r in $rows) {
@@ -318,6 +326,11 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
         # find existing row: PC name > remote access ID > floor+room+place > user (only if unique and has no PC name yet)
         $hit = $null; $how = ''
         $hit = $items | Where-Object { & $same (Cv $_ $Cm.Pc) $rec.Pc } | Select-Object -First 1; if ($hit) { $how = 'PC name' }
+        if ($hit -and $Cm.Serial -and $rec.Serial) {        # same PC name, but another serial number: probably a different computer
+            $sc = Cv $hit $Cm.Serial
+            if ($sc -and -not (& $same $sc $rec.Serial)) { Write-Log WARN "excel: row $($hit.N) has the same PC name, but another serial number ($sc / $($rec.Serial)): treated as a different PC"; $hit = $null; $how = '' }
+        }
+        if (-not $hit -and $Cm.Serial -and $rec.Serial) { $hit = $items | Where-Object { & $same (Cv $_ $Cm.Serial) $rec.Serial } | Select-Object -First 1; if ($hit) { $how = 'serial number' } }
         if (-not $hit -and $Cm.RemoteA -and $rec.RemoteA -ne $none -and $rec.RemoteA -ne $script:NoId) { $hit = $items | Where-Object { (Cv $_ $Cm.RemoteA) -eq $rec.RemoteA } | Select-Object -First 1; if ($hit) { $how = 'remote access ID' } }
         if (-not $hit -and $Cm.Floor -and $Cm.Room -and $Cm.Place -and $rec.Floor -and $rec.Room -and $rec.Place) {
             $hit = $items | Where-Object { (& $same (Cv $_ $Cm.Floor) $rec.Floor) -and (& $same (Cv $_ $Cm.Room) $rec.Room) -and (& $same (Cv $_ $Cm.Place) $rec.Place) } | Select-Object -First 1
@@ -344,11 +357,14 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
             $n.User  = if ($rec.UserFromPassport -or -not (Cv $hit $Cm.User)) { $rec.User } else { Cv $hit $Cm.User }
             $n.RemoteA   = Merge-Id (Cv $hit $Cm.RemoteA) $rec.RemoteA $none
             $n.RemoteB   = Merge-Id (Cv $hit $Cm.RemoteB) $rec.RemoteB $none
-            $n.State = if (Cv $hit $Cm.State) { Cv $hit $Cm.State } else { $rec.State }
+            $cur = Cv $hit $Cm.State
+            $n.State = if ($rec.State -and (Test-AutoState $cur)) { $rec.State } elseif ($cur) { $cur } else { Get-DefaultState }
+            $n.Serial = if ($rec.Serial) { $rec.Serial } else { Cv $hit $Cm.Serial }
+            $n.Model  = if ($rec.Model)  { $rec.Model }  else { Cv $hit $Cm.Model }
             $n.Disk = Merge-DiskProtection (Cv $hit $Cm.Disk) $rec.Disk $none
             $n.Pc    = $rec.Pc
             $changed = 0
-            foreach ($k in 'Floor', 'Room', 'Place', 'User', 'RemoteA', 'RemoteB', 'State', 'Disk', 'Pc') {
+            foreach ($k in 'Floor', 'Room', 'Place', 'User', 'RemoteA', 'RemoteB', 'State', 'Disk', 'Pc', 'Serial', 'Model') {
                 if (Set-CellIf $doc $row $Cm[$k] (Cv $hit $Cm[$k]) ([string]$n[$k]) (& $sty $Cm[$k])) { $changed++ }
             }
             [void]$row.RemoveAttribute('spans')
@@ -364,7 +380,7 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
             $sty = { param($i) if ($st.ContainsKey($i)) { $st[$i] } elseif ($created) { '2' } else { '' } }
             $row = $doc.CreateElement('row', $XNS); $row.SetAttribute('r', [string]$new); [void]$data.AppendChild($row)
             if ($Cm.Num) { Set-Cell $doc $row $Cm.Num ([string]([int]$num + 1)) (& $sty $Cm.Num) $true }
-            $vals = @{ Floor = $rec.Floor; Room = $rec.Room; Place = $rec.Place; User = $rec.User; RemoteA = $rec.RemoteA; RemoteB = $rec.RemoteB; State = $rec.State; Disk = $rec.Disk; Pc = $rec.Pc }
+            $vals = @{ Floor = $rec.Floor; Room = $rec.Room; Place = $rec.Place; User = $rec.User; RemoteA = $rec.RemoteA; RemoteB = $rec.RemoteB; State = $(if ($rec.State) { $rec.State } else { Get-DefaultState }); Disk = $rec.Disk; Pc = $rec.Pc; Serial = $rec.Serial; Model = $rec.Model }
             foreach ($k in $vals.Keys) { if ($Cm[$k]) { Set-Cell $doc $row $Cm[$k] ([string]$vals[$k]) (& $sty $Cm[$k]) } }
             if ($rec.ReportRel -and $Cm.Rpt) { $ls = Get-LinkStyleOf $row $Cm.Rpt; if (-not $ls) { $ls = Add-LinkStyle $zip (& $sty $Cm.Pc) $true }; Set-LinkCell $doc $row $Cm.Rpt $rec.ReportRel $rec.ReportLabel $ls }
             $last = $new
@@ -406,9 +422,10 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
 }
 
 function Update-InventoryXlsx($path, $rec, $none) {
-    $builtin = @('#', '\u042d\u0442\u0430\u0436', '\u041f\u043e\u043c\u0435\u0449\u0435\u043d\u0438\u0435', '\u0420\u0430\u0431\u043e\u0447\u0435\u0435 \u043c\u0435\u0441\u0442\u043e', '\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c', '\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f 1 (ID)', '\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f 2 (ID)', '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u0440\u0430\u0431\u043e\u0447\u0435\u0439 \u0441\u0442\u0430\u043d\u0446\u0438\u0438', '\u0417\u0430\u0449\u0438\u0442\u0430 \u0434\u0438\u0441\u043a\u0430', '\u0418\u043c\u044f \u041f\u041a', '\u041e\u0442\u0447\u0451\u0442') | ForEach-Object { U $_ }
+    $builtin = @('#', '\u042d\u0442\u0430\u0436', '\u041f\u043e\u043c\u0435\u0449\u0435\u043d\u0438\u0435', '\u0420\u0430\u0431\u043e\u0447\u0435\u0435 \u043c\u0435\u0441\u0442\u043e', '\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c', '\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f 1 (ID)', '\u0423\u0434\u0430\u043b\u0451\u043d\u043d\u044b\u0439 \u0434\u043e\u0441\u0442\u0443\u043f 2 (ID)', '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u0440\u0430\u0431\u043e\u0447\u0435\u0439 \u0441\u0442\u0430\u043d\u0446\u0438\u0438', '\u0417\u0430\u0449\u0438\u0442\u0430 \u0434\u0438\u0441\u043a\u0430', '\u0418\u043c\u044f \u041f\u041a', '\u041e\u0442\u0447\u0451\u0442', '\u0421\u0435\u0440\u0438\u0439\u043d\u044b\u0439 \u043d\u043e\u043c\u0435\u0440', '\u041c\u043e\u0434\u0435\u043b\u044c') | ForEach-Object { U $_ }
     $headers = @($builtin)
     $hc = @(Cfg 'excel.headers' @())      # config.json: custom column titles (used when a NEW workbook is created; existing sheets are matched by header text)
+    if ($hc.Count -eq 11) { $hc = @($hc) + @($headers[11..12]) }      # configs made before 1.3.0 have no identity columns
     if ($hc.Count -eq $headers.Count) { $headers = @($hc | ForEach-Object { [string]$_ }) }
     elseif ($hc.Count) { Write-Host "  excel.headers must contain $($headers.Count) items, built-in headers are used" -ForegroundColor Yellow }
 

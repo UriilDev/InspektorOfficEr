@@ -75,7 +75,10 @@ function Ask-Passport {
 
 function Get-PcPassport {
     $p = [ordered]@{ Floor = ''; Room = ''; Place = ''; User = ''; Source = '' }
-    $names = @("pc_info_$env:COMPUTERNAME.json", "pc_info_$env:COMPUTERNAME.txt", 'pc_info.json', 'pc_info.txt', 'pc_info.json.txt', 'pc_info.txt.txt')
+    $sn = [string](Get-PcIdentity).Serial -replace '[^A-Za-z0-9_-]', ''
+    $names = @("pc_info_$env:COMPUTERNAME.json", "pc_info_$env:COMPUTERNAME.txt")
+    if ($sn) { $names += @("pc_info_$sn.json", "pc_info_$sn.txt") }         # a passport named after the serial number survives a PC rename
+    $names += @('pc_info.json', 'pc_info.txt', 'pc_info.json.txt', 'pc_info.txt.txt')
     $locs  = (@($PassDir, 'C:\', $Root) + @(Get-DesktopDirs)) | Where-Object { $_ } | Select-Object -Unique
     foreach ($loc in $locs) {
         foreach ($n in $names) {

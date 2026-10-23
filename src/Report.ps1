@@ -81,6 +81,7 @@ function New-InspectorReport($path) {
 
     # ---- checks (src\Checks.ps1: thresholds come from config.json "checks") ----
     foreach ($c in @(Get-QuickChecks $os $up $ramTotal)) { if ($c) { [void]$checks.Add($c) } }
+    $script:LastChecks = @($checks)
     $nOk = @($checks | Where-Object L -eq 'ok').Count; $nWarn = @($checks | Where-Object L -eq 'warn').Count; $nBad = @($checks | Where-Object L -eq 'bad').Count
     $checkHtml = (Get-CheckLead $checks) + (ConvertTo-CheckHtml $checks)
 

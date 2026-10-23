@@ -15,9 +15,9 @@ function Save-PendingRow($rec) {
     $f = Join-Path $OutDir '_pending_rows.csv'
     $isNew = -not (Test-Path $f)
     $esc = { param($s) '"' + ([string]$s).Replace('"', '""') + '"' }
-    $line = (@($rec.Floor, $rec.Room, $rec.Place, $rec.User, $rec.RemoteA, $rec.RemoteB, $rec.State, $rec.Disk, $rec.Pc, (Get-Date -Format 'yyyy-MM-dd HH:mm')) | ForEach-Object { & $esc $_ }) -join ';'
+    $line = (@($rec.Floor, $rec.Room, $rec.Place, $rec.User, $rec.RemoteA, $rec.RemoteB, $rec.State, $rec.Disk, $rec.Pc, $rec.Serial, $rec.Model, (Get-Date -Format 'yyyy-MM-dd HH:mm')) | ForEach-Object { & $esc $_ }) -join ';'
     $txt = ''
-    if ($isNew) { $txt = '"Floor";"Room";"Place";"User";"RemoteAccessA";"RemoteAccessB";"State";"DiskProtection";"PC";"Collected"' + "`r`n" }
+    if ($isNew) { $txt = '"Floor";"Room";"Place";"User";"RemoteAccessA";"RemoteAccessB";"State";"DiskProtection";"PC";"Serial";"Model";"Collected"' + "`r`n" }
     [IO.File]::AppendAllText($f, $txt + $line + "`r`n", (New-Object Text.UTF8Encoding($true)))
     $f
 }
@@ -28,13 +28,16 @@ function Invoke-Inventory {
     $pp  = Get-PcPassport
     $rec = [pscustomobject]@{
         Floor = $pp.Floor; Room = $pp.Room; Place = $pp.Place; User = $pp.User; UserFromPassport = $pp.UserFromPassport
-        RemoteA = $(if (Cfg 'features.remoteAccessDetect' $true) { Tm 'RemoteA' { Get-RemoteIdA } } else { $NO }); RemoteB = $(if (Cfg 'features.remoteAccessDetect' $true) { Tm 'RemoteB' { Get-RemoteIdB } } else { $NO }); State = [string](Cfg 'excel.defaultState' (U '\u0425\u043e\u0440\u043e\u0448\u0435\u0435'))
+        RemoteA = $(if (Cfg 'features.remoteAccessDetect' $true) { Tm 'RemoteA' { Get-RemoteIdA } } else { $NO }); RemoteB = $(if (Cfg 'features.remoteAccessDetect' $true) { Tm 'RemoteB' { Get-RemoteIdB } } else { $NO }); State = $(if ($script:LastChecks -and @($script:LastChecks).Count) { Get-StateSummary $script:LastChecks } else { '' })
+        Serial = (Get-PcIdentity).Serial; Model = (Get-PcIdentity).Model
         Disk = $(if (Cfg 'features.diskProtectionDetect' $true) { Tm 'DiskProtection' { Get-DiskProtectionStatus } } else { $NO }); Pc = $env:COMPUTERNAME; ReportRel = ''; ReportLabel = ''
     }
     function Via($x) { if ($x) { "<- $x" } else { '<- not found' } }
     Write-Host "  passport  : $(if ($pp.Source) { $pp.Source } else { 'not found (C:\, USB root, desktops), using Windows user name' })"
     Write-Host "  PC / user : $($rec.Pc) / $($rec.User)"
     Write-Host "  floor/room/place : $($rec.Floor) / $($rec.Room) / $($rec.Place)"
+    Write-Host "  serial/model : $($rec.Serial) / $($rec.Model)"
+    Write-Host "  state     : $(if ($rec.State) { $rec.State } else { '(not changed: no report in this run)' })"
     Write-Host "  remote A  : $($rec.RemoteA)  $(Via $script:Src.RemoteA)"
     Write-Host "  remote B  : $($rec.RemoteB)  $(Via $script:Src.RemoteB)"
     Write-Host "  disk prot.: $($rec.Disk)  $(Via $script:Src.Disk)"
