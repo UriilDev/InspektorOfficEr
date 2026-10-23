@@ -39,7 +39,8 @@
     "defaultState": "Нет проблем",
     "reportLabel": "Отчёт",
     "labelDateFormat": "yyyy-MM-dd",
-    "stateMaxItems": 2
+    "stateMaxItems": 2,
+    "softwareCanBeRed": false
   },
   "remoteAccessDetect": {
     "extraConfigDirsA": [],
@@ -54,13 +55,15 @@
   },
   "checks": {
     "uptimeDaysWarn": 30,
-    "ramGbWarn": 4,
+    "ramGbWarn": 8,
     "diskFreePctWarn": 20,
     "diskFreePctBad": 10,
     "diskFreeGbBad": 5,
     "osSupportWarnDays": 90,
     "changeFreeGb": 5,
-    "osSupport": []
+    "osSupport": [],
+    "ramGbBad": 4,
+    "cpuThreadsWarn": 2
   },
   "reports": {
     "fileName": "{pc}_report_{date}.html",

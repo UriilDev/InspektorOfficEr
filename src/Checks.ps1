@@ -1,5 +1,5 @@
 # ===================== QUICK CHECKS: thresholds from config.json (section "checks"), plain wording =====================
-function New-Check([string]$Level, [string]$Text, [string]$Action = '', [string]$Short = '') { [pscustomobject]@{ L = $Level; T = $Text; A = $Action; S = $Short } }
+function New-Check([string]$Level, [string]$Text, [string]$Action = '', [string]$Short = '', [bool]$Hw = $false) { [pscustomobject]@{ L = $Level; T = $Text; A = $Action; S = $Short; Hw = $Hw } }
 
 function ConvertTo-Date([string]$s) {
     try { [datetime]::ParseExact($s, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } catch { $null }
@@ -132,10 +132,7 @@ function Get-QuickChecks($os, $up, [double]$ramTotal) {
     if ($up.TotalDays -gt 20000) { Write-Log DEBUG 'report: boot time unknown, uptime check skipped' }
     elseif ($up.Days -gt $upWarn) { $r += (New-Check 'warn' ((U '\u041a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0430\u043b\u0441\u044f ') + $up.Days + (U ' \u0434\u043d.')) (U '\u041f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u041f\u041a (\u043f\u0440\u0438\u043c\u0435\u043d\u044f\u0442\u0441\u044f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f, \u043e\u0441\u0432\u043e\u0431\u043e\u0436\u0434\u0430\u0435\u0442\u0441\u044f \u043f\u0430\u043c\u044f\u0442\u044c)') ((U '\u0411\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 ') + $up.Days + (U ' \u0434\u043d.'))) }
     else { $r += (New-Check 'ok' ((U '\u0412\u0440\u0435\u043c\u044f \u0440\u0430\u0431\u043e\u0442\u044b \u0431\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438: ') + $up.Days + (U ' \u0434\u043d.'))) }
-    $ramWarn = [double](Cfg 'checks.ramGbWarn' 4)
-    if ($ramTotal -le 0) { Write-Log DEBUG 'report: RAM size unknown, RAM check skipped' }
-    elseif ($ramTotal -lt $ramWarn) { $r += (New-Check 'warn' ((U '\u041c\u0430\u043b\u043e \u043e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438: ') + $ramTotal + (U ' \u0413\u0411')) (U '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c, \u0435\u0441\u043b\u0438 \u041f\u041a \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e') ((U '\u041c\u0430\u043b\u043e \u041e\u0417\u0423: ') + $ramTotal + (U ' \u0413\u0411'))) }
-    else { $r += (New-Check 'ok' ((U '\u041e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438 \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e: ') + $ramTotal + (U ' \u0413\u0411'))) }
+    foreach ($hc in @(Get-HardwareChecks $ramTotal)) { if ($hc) { $r += $hc } }
     $oc = Get-OsSupportCheck $os; if ($oc) { $r += $oc }
     $av = Get-AvCheck; $r += $av.Check
     $fw = Get-FirewallCheck $av.Third; if ($fw) { $r += $fw }
@@ -168,8 +165,8 @@ function Get-CheckLead($checks) {
 }
 
 # ---- state column: three categories, short real reasons ----
-#   red    "Danger: ..."      - something dangerous (nearly full system disk, unsupported OS, no / disabled antivirus, ...)
-#   yellow "Tolerable: ..."   - not great, but it can be lived with (little free space, long uptime, little RAM, ...)
+#   red    "Danger: ..."      - HARDWARE that is failing or far too weak (disk SMART failure, very little or very old RAM)
+#   yellow "Tolerable: ..."   - not great, but it can be lived with (HDD system disk, 4-8 GB RAM, DDR3, weak CPU) and ALL software problems (no antivirus, old OS, low free space, long uptime)
 #   green  "No problems"      - nothing found
 # The reason always says WHAT it is (low free space on the system drive, low RAM), so it cannot be mistaken for disk health.
 function Get-StateLabel([string]$level) {
@@ -178,11 +175,15 @@ function Get-StateLabel([string]$level) {
 function Get-DefaultState { [string](Cfg 'excel.defaultState' (Get-StateLabel 'ok')) }
 function Get-StateSummary($checks) {
     $maxItems = [Math]::Max(1, [int](Cfg 'excel.stateMaxItems' 2))
-    $bad  = @($checks | Where-Object { $_.L -eq 'bad'  -and $_.S } | ForEach-Object { $_.S })
-    $warn = @($checks | Where-Object { $_.L -eq 'warn' -and $_.S } | ForEach-Object { $_.S })
-    $all  = @($bad + $warn)
+    $swRed = [bool](Cfg 'excel.softwareCanBeRed' $false)         # by default only HARDWARE (disk health, memory, ...) can make the state red; software problems are yellow
+    $red = @(); $yel = @()
+    foreach ($c in @($checks)) {
+        if (-not $c.S -or $c.L -eq 'ok') { continue }
+        if ($c.L -eq 'bad' -and ($c.Hw -or $swRed)) { $red += $c.S } else { $yel += $c.S }
+    }
+    $all = @($red + $yel)
     if (-not $all.Count) { return (Get-DefaultState) }
-    $label = if ($bad.Count) { Get-StateLabel 'bad' } else { Get-StateLabel 'warn' }
+    $label = if ($red.Count) { Get-StateLabel 'bad' } else { Get-StateLabel 'warn' }
     $txt = $label + ': ' + ((@($all | Select-Object -First $maxItems)) -join ', ')
     if ($all.Count -gt $maxItems) { $txt += ' +' + ($all.Count - $maxItems) }
     $txt
@@ -196,4 +197,81 @@ function Test-AutoState([string]$s) {
         if ($s -ieq $w -or $s.StartsWith($w + ':')) { return $true }
     }
     $false
+}
+
+# ---- hardware speed / health checks (memory size and generation, disk health and type, processor); they decide the RED category of the state column ----
+function Get-RamGeneration {          # oldest memory module wins; Level: 0 ok / unknown, 1 old (DDR3), 2 very old (DDR / DDR2)
+    $best = $null
+    try {
+        foreach ($m in @(Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop)) {
+            $smb = [int]$m.SMBIOSMemoryType; $leg = [int]$m.MemoryType; $name = ''; $lvl = 0
+            if ($smb -gt 0) {
+                switch ($smb) { 18 { $name = 'DDR'; $lvl = 2 } 19 { $name = 'DDR2'; $lvl = 2 } 20 { $name = 'DDR2'; $lvl = 2 } 24 { $name = 'DDR3'; $lvl = 1 } 29 { $name = 'LPDDR3'; $lvl = 1 } 26 { $name = 'DDR4' } 30 { $name = 'LPDDR4' } 34 { $name = 'DDR5' } 35 { $name = 'LPDDR5' } }
+            } else {
+                switch ($leg) { 20 { $name = 'DDR'; $lvl = 2 } 21 { $name = 'DDR2'; $lvl = 2 } 22 { $name = 'DDR2'; $lvl = 2 } 24 { $name = 'DDR3'; $lvl = 1 } 26 { $name = 'DDR4' } }
+            }
+            if ($name -and (-not $best -or $lvl -gt $best.Level)) { $best = [pscustomobject]@{ Name = $name; Level = $lvl } }
+        }
+    } catch { Write-Log DEBUG "hardware: memory type unavailable: $($_.Exception.Message)" }
+    $best
+}
+
+function Get-DiskHealthChecks {
+    $r = @()
+    $phys = @()
+    try { $phys = @(Get-CimInstance -Namespace 'root\Microsoft\Windows\Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop) } catch { Write-Log DEBUG "hardware: physical disk class unavailable: $($_.Exception.Message)" }
+    $badN = @(); $warnN = @()
+    foreach ($d in $phys) {                          # HealthStatus: 0 healthy, 1 warning, 2 unhealthy
+        $h = -1; try { $h = [int]$d.HealthStatus } catch { }
+        if ($h -eq 2) { $badN += [string]$d.FriendlyName } elseif ($h -eq 1) { $warnN += [string]$d.FriendlyName }
+    }
+    $pf = $false                                     # SMART failure prediction (works without the Storage module, e.g. Windows 7)
+    try { foreach ($s in @(Get-CimInstance -Namespace 'root\wmi' -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction Stop)) { if ($s.PredictFailure) { $pf = $true } } } catch { Write-Log DEBUG "hardware: SMART status unavailable: $($_.Exception.Message)" }
+    try { foreach ($dd in @(Get-CimInstance Win32_DiskDrive -ErrorAction Stop)) { if ([string]$dd.Status -match 'Pred Fail|Bad|Error') { $pf = $true } } } catch { }
+    if ($badN.Count -or $pf) {
+        $r += (New-Check 'bad' ((U '\u0414\u0438\u0441\u043a \u0441\u043e\u043e\u0431\u0449\u0430\u0435\u0442 \u043e \u043d\u0435\u0438\u0441\u043f\u0440\u0430\u0432\u043d\u043e\u0441\u0442\u0438 (SMART): ') + ($badN -join ', ')) (U '\u0421\u0440\u043e\u0447\u043d\u043e \u0441\u0434\u0435\u043b\u0430\u0442\u044c \u0440\u0435\u0437\u0435\u0440\u0432\u043d\u0443\u044e \u043a\u043e\u043f\u0438\u044e \u0434\u0430\u043d\u043d\u044b\u0445 \u0438 \u0437\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u0434\u0438\u0441\u043a') (U '\u0414\u0438\u0441\u043a \u043d\u0435\u0438\u0441\u043f\u0440\u0430\u0432\u0435\u043d (SMART)') $true)
+    } elseif ($warnN.Count) {
+        $r += (New-Check 'warn' ((U '\u0414\u0438\u0441\u043a \u0441\u043e\u043e\u0431\u0449\u0430\u0435\u0442 \u043e \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u0438 (SMART): ') + ($warnN -join ', ')) (U '\u0421\u0434\u0435\u043b\u0430\u0442\u044c \u0440\u0435\u0437\u0435\u0440\u0432\u043d\u0443\u044e \u043a\u043e\u043f\u0438\u044e \u0434\u0430\u043d\u043d\u044b\u0445 \u0438 \u043f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0434\u0438\u0441\u043a') (U '\u0414\u0438\u0441\u043a: \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u0435 SMART') $true)
+    } elseif ($phys.Count) {
+        $r += (New-Check 'ok' (U '\u0414\u0438\u0441\u043a\u0438 \u0438\u0441\u043f\u0440\u0430\u0432\u043d\u044b (SMART)') '' '' $true)
+    }
+    # type of the system disk (HDD is much slower than SSD)
+    $sysNum = $null
+    try {
+        $ld = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='" + $env:SystemDrive + "'") -ErrorAction Stop | Select-Object -First 1
+        $pt = @(Get-CimAssociatedInstance -InputObject $ld -ResultClassName Win32_DiskPartition -ErrorAction Stop | Select-Object -First 1)
+        $dv = @(Get-CimAssociatedInstance -InputObject $pt[0] -ResultClassName Win32_DiskDrive -ErrorAction Stop | Select-Object -First 1)
+        $sysNum = [string]$dv[0].Index
+    } catch { Write-Log DEBUG "hardware: system disk number unknown: $($_.Exception.Message)" }
+    $sd = $null
+    if ($null -ne $sysNum) { $sd = $phys | Where-Object { [string]$_.DeviceId -eq $sysNum } | Select-Object -First 1 }
+    $hdd = $false
+    if ($sd) { $hdd = ([int]$sd.MediaType -eq 3) }
+    elseif ($phys.Count -and @($phys | Where-Object { [int]$_.MediaType -eq 3 }).Count -and -not @($phys | Where-Object { [int]$_.MediaType -eq 4 }).Count) { $hdd = $true }
+    if ($hdd) { $r += (New-Check 'warn' (U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a - HDD: \u043a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u0437\u0430\u043c\u0435\u0442\u043d\u043e \u043c\u0435\u0434\u043b\u0435\u043d\u043d\u0435\u0435, \u0447\u0435\u043c \u0441 SSD') (U '\u0417\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a \u043d\u0430 SSD') (U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a HDD (\u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e)') $true) }
+    elseif ($sd -and [int]$sd.MediaType -eq 4) { $r += (New-Check 'ok' (U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a - SSD') '' '' $true) }
+    $r
+}
+
+function Get-HardwareChecks([double]$ramTotal) {
+    $r = @()
+    $ramBad = [double](Cfg 'checks.ramGbBad' 4); $ramWarn = [double](Cfg 'checks.ramGbWarn' 8)
+    $act = U '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c (\u0440\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0443\u0435\u0442\u0441\u044f \u043d\u0435 \u043c\u0435\u043d\u0435\u0435 8 \u0413\u0411), \u0435\u0441\u043b\u0438 \u041f\u041a \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e'
+    if ($ramTotal -le 0) { Write-Log DEBUG 'report: RAM size unknown, RAM check skipped' }
+    elseif ($ramTotal -lt $ramBad)  { $r += (New-Check 'bad'  (((U '\u041a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u0438 \u043c\u0430\u043b\u043e \u043e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438: ') + $ramTotal + (U ' \u0413\u0411'))) $act (((U '\u041c\u0430\u043b\u043e \u041e\u0417\u0423: ') + $ramTotal + (U ' \u0413\u0411'))) $true) }
+    elseif ($ramTotal -lt $ramWarn) { $r += (New-Check 'warn' (((U '\u041e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438 \u043c\u0430\u043b\u043e \u0434\u043b\u044f \u0441\u043e\u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e\u0439 Windows: ') + $ramTotal + (U ' \u0413\u0411'))) $act (((U '\u041c\u0430\u043b\u043e \u041e\u0417\u0423: ') + $ramTotal + (U ' \u0413\u0411'))) $true) }
+    else { $r += (New-Check 'ok' (((U '\u041e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438 \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e: ') + $ramTotal + (U ' \u0413\u0411'))) '' '' $true) }
+    $g = Get-RamGeneration
+    if ($g -and $g.Level -ge 2) { $r += (New-Check 'bad'  ((U '\u041e\u0447\u0435\u043d\u044c \u0441\u0442\u0430\u0440\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c: ') + $g.Name) (U '\u0417\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c (\u0438, \u0441\u043a\u043e\u0440\u0435\u0435 \u0432\u0441\u0435\u0433\u043e, \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u0443\u044e \u043f\u043b\u0430\u0442\u0443) - \u041f\u041a \u0443\u0441\u0442\u0430\u0440\u0435\u043b') ((U '\u041e\u0447\u0435\u043d\u044c \u0441\u0442\u0430\u0440\u0430\u044f \u041e\u0417\u0423 ') + $g.Name) $true) }
+    elseif ($g -and $g.Level -eq 1) { $r += (New-Check 'warn' ((U '\u0423\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c: ') + $g.Name) (U '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c \u0438\u043b\u0438 \u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0437\u0430\u043c\u0435\u043d\u0443 \u041f\u041a') ((U '\u0421\u0442\u0430\u0440\u0430\u044f \u041e\u0417\u0423 ') + $g.Name) $true) }
+    elseif ($g) { $r += (New-Check 'ok' ((U '\u0422\u0438\u043f \u043f\u0430\u043c\u044f\u0442\u0438: ') + $g.Name) '' '' $true) }
+    $r += @(Get-DiskHealthChecks)
+    try {
+        $thr = [int](Cfg 'checks.cpuThreadsWarn' 2)
+        $n = 0; $cpu = ''
+        foreach ($p in @(Get-CimInstance Win32_Processor -ErrorAction Stop)) { $n += [int]$p.NumberOfLogicalProcessors; if (-not $cpu) { $cpu = ([string]$p.Name).Trim() } }
+        if ($n -gt 0 -and $n -le $thr) { $r += (New-Check 'warn' ((U '\u0421\u043b\u0430\u0431\u044b\u0439 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u043e\u0440: \u043f\u043e\u0442\u043e\u043a\u043e\u0432 ') + $n + (U ', ') + $cpu) (U '\u0420\u0430\u0441\u0441\u043c\u043e\u0442\u0440\u0435\u0442\u044c \u0437\u0430\u043c\u0435\u043d\u0443 \u041f\u041a \u0438\u043b\u0438 \u043e\u0431\u043b\u0435\u0433\u0447\u0438\u0442\u044c \u0440\u0430\u0431\u043e\u0447\u0443\u044e \u043d\u0430\u0433\u0440\u0443\u0437\u043a\u0443') ((U '\u0421\u043b\u0430\u0431\u044b\u0439 \u0426\u041f: \u043f\u043e\u0442\u043e\u043a\u043e\u0432 ') + $n) $true) }
+        elseif ($n -gt 0) { $r += (New-Check 'ok' ((U '\u041f\u0440\u043e\u0446\u0435\u0441\u0441\u043e\u0440: \u043f\u043e\u0442\u043e\u043a\u043e\u0432 ') + $n + (U ' ')) '' '' $true) }
+    } catch { Write-Log DEBUG "hardware: processor info unavailable: $($_.Exception.Message)" }
+    $r
 }
