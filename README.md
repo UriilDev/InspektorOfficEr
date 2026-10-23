@@ -102,7 +102,7 @@
 ### Пример вывода
 
 ```text
-InspektorOfficEr v1.5.0
+InspektorOfficEr v1.5.1
 --- inventory ---
   passport  : Passports\pc_info_PC-OFFICE-02.json
   PC / user : PC-OFFICE-02 / test_user

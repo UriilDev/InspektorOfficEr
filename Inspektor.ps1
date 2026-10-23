@@ -5,9 +5,8 @@
 param([switch]$SkipReport, [switch]$SkipExcel, [switch]$NoRemoteCli, [switch]$NoPrompt, [switch]$Diagnose)
 
 $ErrorActionPreference = 'Stop'
-
 # ===================== CORE: strings, config, shared state =====================
-$AppName = 'InspektorOfficEr'; $AppVer = '1.5.0'
+$AppName = 'InspektorOfficEr'; $AppVer = '1.5.1'
 
 # ---------- Cyrillic-safe strings: sources are pure ASCII, texts are written as \uXXXX ----------
 function U([string]$s) { [regex]::Replace($s, '\\u([0-9a-fA-F]{4})', { param($m) [string][char][Convert]::ToInt32($m.Groups[1].Value, 16) }) }
@@ -323,7 +322,7 @@ function Get-QuickChecks($os, $up, [double]$ramTotal) {
     if ($up.TotalDays -gt 20000) { Write-Log DEBUG 'report: boot time unknown, uptime check skipped' }
     elseif ($up.Days -gt $upWarn) { $r += (New-Check 'warn' ((U '\u041a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0430\u043b\u0441\u044f ') + $up.Days + (U ' \u0434\u043d.')) (U '\u041f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u041f\u041a (\u043f\u0440\u0438\u043c\u0435\u043d\u044f\u0442\u0441\u044f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f, \u043e\u0441\u0432\u043e\u0431\u043e\u0436\u0434\u0430\u0435\u0442\u0441\u044f \u043f\u0430\u043c\u044f\u0442\u044c)') ((U '\u0411\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 ') + $up.Days + (U ' \u0434\u043d.'))) }
     else { $r += (New-Check 'ok' ((U '\u0412\u0440\u0435\u043c\u044f \u0440\u0430\u0431\u043e\u0442\u044b \u0431\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438: ') + $up.Days + (U ' \u0434\u043d.'))) }
-    foreach ($hc in @(Get-HardwareChecks $ramTotal)) { if ($hc) { $r += $hc } }
+    try { foreach ($hc in @(Get-HardwareChecks $ramTotal)) { if ($hc) { $r += $hc } } } catch { Write-Log WARN "report: hardware checks failed: $($_.Exception.Message)" }
     $oc = Get-OsSupportCheck $os; if ($oc) { $r += $oc }
     $av = Get-AvCheck; $r += $av.Check
     $fw = Get-FirewallCheck $av.Third; if ($fw) { $r += $fw }
@@ -407,13 +406,30 @@ function Get-RamGeneration {          # oldest memory module wins; Level: 0 ok /
     $best
 }
 
+# MediaType / HealthStatus come as numbers on some Windows builds (3 HDD, 4 SSD, 5 SCM; 0 healthy, 1 warning, 2 unhealthy)
+# and as text on others ('SSD', 'Healthy'): never cast them straight to [int]
+function Get-DiskKind($v) {
+    $s = ([string]$v).Trim()
+    if ($s -match '^\d+$') { switch ([int]$s) { 3 { return 'HDD' } 4 { return 'SSD' } 5 { return 'SCM' } default { return 'Unspecified' } } }
+    if ($s -match '^(HDD|SSD|SCM)$') { return $s.ToUpper() }
+    'Unspecified'
+}
+function Get-DiskHealthLevel($v) {
+    $s = ([string]$v).Trim()
+    if ($s -match '^\d+$') { $n = [int]$s; if ($n -ge 0 -and $n -le 2) { return $n }; return -1 }
+    if ($s -match '^Healthy$') { return 0 }
+    if ($s -match '^Warning$') { return 1 }
+    if ($s -match '^Unhealthy$') { return 2 }
+    -1
+}
+
 function Get-DiskHealthChecks {
     $r = @()
     $phys = @()
     try { $phys = @(Get-CimInstance -Namespace 'root\Microsoft\Windows\Storage' -ClassName MSFT_PhysicalDisk -ErrorAction Stop) } catch { Write-Log DEBUG "hardware: physical disk class unavailable: $($_.Exception.Message)" }
     $badN = @(); $warnN = @()
     foreach ($d in $phys) {                          # HealthStatus: 0 healthy, 1 warning, 2 unhealthy
-        $h = -1; try { $h = [int]$d.HealthStatus } catch { }
+        $h = Get-DiskHealthLevel $d.HealthStatus
         if ($h -eq 2) { $badN += [string]$d.FriendlyName } elseif ($h -eq 1) { $warnN += [string]$d.FriendlyName }
     }
     $pf = $false                                     # SMART failure prediction (works without the Storage module, e.g. Windows 7)
@@ -437,10 +453,10 @@ function Get-DiskHealthChecks {
     $sd = $null
     if ($null -ne $sysNum) { $sd = $phys | Where-Object { [string]$_.DeviceId -eq $sysNum } | Select-Object -First 1 }
     $hdd = $false
-    if ($sd) { $hdd = ([int]$sd.MediaType -eq 3) }
-    elseif ($phys.Count -and @($phys | Where-Object { [int]$_.MediaType -eq 3 }).Count -and -not @($phys | Where-Object { [int]$_.MediaType -eq 4 }).Count) { $hdd = $true }
+    if ($sd) { $hdd = ((Get-DiskKind $sd.MediaType) -eq 'HDD') }
+    elseif ($phys.Count -and @($phys | Where-Object { (Get-DiskKind $_.MediaType) -eq 'HDD' }).Count -and -not @($phys | Where-Object { (Get-DiskKind $_.MediaType) -eq 'SSD' }).Count) { $hdd = $true }
     if ($hdd) { $r += (New-Check 'warn' (U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a - HDD: \u043a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u0437\u0430\u043c\u0435\u0442\u043d\u043e \u043c\u0435\u0434\u043b\u0435\u043d\u043d\u0435\u0435, \u0447\u0435\u043c \u0441 SSD') (U '\u0417\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a \u043d\u0430 SSD') (U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a HDD (\u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e)') $true) }
-    elseif ($sd -and [int]$sd.MediaType -eq 4) { $r += (New-Check 'ok' (U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a - SSD') '' '' $true) }
+    elseif ($sd -and (Get-DiskKind $sd.MediaType) -eq 'SSD') { $r += (New-Check 'ok' (U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a - SSD') '' '' $true) }
     $r
 }
 
@@ -456,7 +472,7 @@ function Get-HardwareChecks([double]$ramTotal) {
     if ($g -and $g.Level -ge 2) { $r += (New-Check 'bad'  ((U '\u041e\u0447\u0435\u043d\u044c \u0441\u0442\u0430\u0440\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c: ') + $g.Name) (U '\u0417\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c (\u0438, \u0441\u043a\u043e\u0440\u0435\u0435 \u0432\u0441\u0435\u0433\u043e, \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u0443\u044e \u043f\u043b\u0430\u0442\u0443) - \u041f\u041a \u0443\u0441\u0442\u0430\u0440\u0435\u043b') ((U '\u041e\u0447\u0435\u043d\u044c \u0441\u0442\u0430\u0440\u0430\u044f \u041e\u0417\u0423 ') + $g.Name) $true) }
     elseif ($g -and $g.Level -eq 1) { $r += (New-Check 'warn' ((U '\u0423\u0441\u0442\u0430\u0440\u0435\u0432\u0448\u0430\u044f \u043f\u0430\u043c\u044f\u0442\u044c: ') + $g.Name) (U '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c \u0438\u043b\u0438 \u043f\u043b\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0437\u0430\u043c\u0435\u043d\u0443 \u041f\u041a') ((U '\u0421\u0442\u0430\u0440\u0430\u044f \u041e\u0417\u0423 ') + $g.Name) $true) }
     elseif ($g) { $r += (New-Check 'ok' ((U '\u0422\u0438\u043f \u043f\u0430\u043c\u044f\u0442\u0438: ') + $g.Name) '' '' $true) }
-    $r += @(Get-DiskHealthChecks)
+    try { $r += @(Get-DiskHealthChecks) } catch { Write-Log WARN "report: disk health checks failed: $($_.Exception.Message)" }
     try {
         $thr = [int](Cfg 'checks.cpuThreadsWarn' 2)
         $n = 0; $cpu = ''
@@ -593,7 +609,7 @@ function New-InspectorReport($path) {
     $ram = $mem | Select-Object @{n = (U '\u0421\u043b\u043e\u0442'); e = { $_.BankLabel } }, @{n = (U '\u041f\u0440\u043e\u0438\u0437\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c'); e = { $_.Manufacturer } }, @{n = (U '\u041f\u0430\u0440\u0442-\u043d\u043e\u043c\u0435\u0440'); e = { $_.PartNumber } }, @{n = (U '\u0413\u0411'); e = { [math]::Round($_.Capacity / 1GB, 1) } }, @{n = (U '\u041c\u0413\u0446'); e = { $_.Speed } }
     $dsk = $null
     try {
-        $dsk = @(Get-PhysicalDisk -ErrorAction Stop | Where-Object { [int]$_.DeviceId -ne $skipDisk } | Select-Object @{n = (U '\u041c\u043e\u0434\u0435\u043b\u044c'); e = { $_.FriendlyName } }, @{n = (U '\u0422\u0438\u043f'); e = { $_.MediaType } }, @{n = (U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'); e = { $_.HealthStatus } }, @{n = (U '\u0413\u0411'); e = { [math]::Round($_.Size / 1GB) } }, @{n = (U '\u0428\u0438\u043d\u0430'); e = { $_.BusType } })
+        $dsk = @(Get-PhysicalDisk -ErrorAction Stop | Where-Object { [string]$_.DeviceId -ne [string]$skipDisk } | Select-Object @{n = (U '\u041c\u043e\u0434\u0435\u043b\u044c'); e = { $_.FriendlyName } }, @{n = (U '\u0422\u0438\u043f'); e = { $_.MediaType } }, @{n = (U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'); e = { $_.HealthStatus } }, @{n = (U '\u0413\u0411'); e = { [math]::Round($_.Size / 1GB) } }, @{n = (U '\u0428\u0438\u043d\u0430'); e = { $_.BusType } })
         foreach ($d in $dsk) { if ("$($d.(U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'))" -notmatch 'Healthy|^$') { & $add 'bad' ((U '\u041d\u0430\u043a\u043e\u043f\u0438\u0442\u0435\u043b\u044c \u0441\u043e\u043e\u0431\u0449\u0430\u0435\u0442 \u043e \u043f\u0440\u043e\u0431\u043b\u0435\u043c\u0435: ') + $d.(U '\u041c\u043e\u0434\u0435\u043b\u044c')) } }
     } catch {
         $dsk = @(Get-CimSafe Win32_DiskDrive | Where-Object { $_.Index -ne $skipDisk } | Select-Object @{n = (U '\u041c\u043e\u0434\u0435\u043b\u044c'); e = { $_.Model } }, @{n = (U '\u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435'); e = { $_.Status } }, @{n = (U '\u0413\u0411'); e = { [math]::Round($_.Size / 1GB) } }, @{n = (U '\u0428\u0438\u043d\u0430'); e = { $_.InterfaceType } })
