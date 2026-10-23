@@ -94,7 +94,7 @@ function New-InventoryXlsx($path, [string[]]$headers) {
         Write-ZipText $zip 'xl/workbook.xml' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="' + $XNS + '" xmlns:r="' + $RNS + '"><sheets><sheet name="' + (Get-SheetName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>')
         Write-ZipText $zip 'xl/_rels/workbook.xml.rels' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>')
         Write-ZipText $zip 'xl/styles.xml' ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + $XNS + '"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf></cellXfs></styleSheet>')
-        $cols = ''; $w = 12, 10, 13, 15, 24, 14, 14, 26, 36, 18, 22, 20, 26
+        $cols = ''; $w = 12, 10, 13, 15, 24, 14, 14, 34, 36, 18, 22, 20, 26
         for ($i = 0; $i -lt $headers.Count; $i++) { $cols += '<col min="' + ($i + 1) + '" max="' + ($i + 1) + '" width="' + $w[$i] + '" customWidth="1"/>' }
         $h = ''
         for ($i = 0; $i -lt $headers.Count; $i++) { $h += '<c r="' + (Col-Letter ($i + 1)) + '1" s="1" t="inlineStr"><is><t>' + [Security.SecurityElement]::Escape($headers[$i]) + '</t></is></c>' }
@@ -206,7 +206,7 @@ function Set-CellIf($doc, $row, [int]$col, [string]$old, [string]$new, [string]$
 }
 
 # the worksheet part: copy, update, verify, then replace the original (a failure half-way never damages the workbook)
-# self-check before the sheet is saved: any failure throws, the workbook is then NOT replaced (row goes to _pending_rows.csv)
+# self-check before the sheet is saved: any failure throws, the workbook is then NOT replaced (row goes to Service\pending_rows.csv)
 function Test-InventoryDoc($zip, $doc, $ns, $data, $row, [int]$pcCol, [string]$pc) {
     if ($pcCol -le 0) { throw 'self-check: PC name column was not resolved' }
     $seen = @{}; $prev = 0
@@ -237,6 +237,60 @@ function Test-InventoryDoc($zip, $doc, $ns, $data, $row, [int]$pcCol, [string]$p
         $nx = @($sd.SelectNodes('//m:cellXfs/m:xf', $sn)).Count
         foreach ($x in @($doc.SelectNodes('//m:c[@s]', $ns))) { if ([int]$x.GetAttribute('s') -ge $nx) { throw "self-check: cell $($x.GetAttribute('r')) uses a style that does not exist" } }
     }
+}
+
+# ---- colours of the state column: conditional formatting by the first words (red / yellow / green); added once, works for legacy wording too ----
+function Add-StateFormatting($zip, $doc, $ns, [int]$stateCol, [int]$firstRow) {
+    if ($stateCol -le 0) { return }
+    try {
+        $ws = $doc.DocumentElement
+        $col = Col-Letter $stateCol
+        $rules = @(
+            @{ K = 'bad';  W = @('\u041e\u043f\u0430\u0441\u043d\u043e', '\u041f\u043b\u043e\u0445\u043e\u0435') },
+            @{ K = 'warn'; W = @('\u0422\u0435\u0440\u043f\u0438\u043c\u043e', '\u0412\u043d\u0438\u043c\u0430\u043d\u0438\u0435') },
+            @{ K = 'ok';   W = @('\u041d\u0435\u0442 \u043f\u0440\u043e\u0431\u043b\u0435\u043c', '\u0425\u043e\u0440\u043e\u0448\u0435\u0435') } )
+        foreach ($cf0 in @($ws.SelectNodes('//m:conditionalFormatting', $ns))) {
+            if (([string]$cf0.GetAttribute('sqref')).StartsWith($col) -and @($cf0.SelectNodes('m:cfRule[@text="' + (U '\u041e\u043f\u0430\u0441\u043d\u043e') + '"]', $ns)).Count) { return }     # already installed
+        }
+        $sd = Read-ZipXml $zip 'xl/styles.xml'; if (-not $sd) { return }
+        $sn = New-Object Xml.XmlNamespaceManager($sd.NameTable); $sn.AddNamespace('m', $XNS)
+        $dx = $sd.SelectSingleNode('//m:dxfs', $sn)
+        if (-not $dx) {
+            $anchor = $sd.SelectSingleNode('//m:cellStyles', $sn); if (-not $anchor) { $anchor = $sd.SelectSingleNode('//m:cellXfs', $sn) }
+            if (-not $anchor) { return }
+            $dx = $sd.CreateElement('dxfs', $XNS); $dx.SetAttribute('count', '0')
+            [void]$sd.DocumentElement.InsertAfter($dx, $anchor)
+        }
+        $base = @($dx.ChildNodes | Where-Object { $_.NodeType -eq 'Element' }).Count
+        $clr = @{ bad = @('FF9C0006', 'FFFFC7CE'); warn = @('FF9C5700', 'FFFFEB9C'); ok = @('FF006100', 'FFC6EFCE') }
+        $ids = @{}; $n = 0
+        foreach ($k in 'bad', 'warn', 'ok') {
+            $d = $sd.CreateElement('dxf', $XNS)
+            $f = $sd.CreateElement('font', $XNS); $c = $sd.CreateElement('color', $XNS); $c.SetAttribute('rgb', $clr[$k][0]); [void]$f.AppendChild($c); [void]$d.AppendChild($f)
+            $fl = $sd.CreateElement('fill', $XNS); $pf = $sd.CreateElement('patternFill', $XNS); $bg = $sd.CreateElement('bgColor', $XNS); $bg.SetAttribute('rgb', $clr[$k][1])
+            [void]$pf.AppendChild($bg); [void]$fl.AppendChild($pf); [void]$d.AppendChild($fl)
+            [void]$dx.AppendChild($d); $ids[$k] = $base + $n; $n++
+        }
+        $dx.SetAttribute('count', [string]($base + 3))
+        Write-ZipXml $zip 'xl/styles.xml' $sd
+
+        $prio = 0
+        foreach ($r0 in @($ws.SelectNodes('//m:cfRule', $ns))) { $p = 0; if ([int]::TryParse($r0.GetAttribute('priority'), [ref]$p) -and $p -gt $prio) { $prio = $p } }
+        $cf = $doc.CreateElement('conditionalFormatting', $XNS)
+        $cf.SetAttribute('sqref', ($col + $firstRow + ':' + $col + '1048576'))
+        foreach ($rule in $rules) { foreach ($w0 in $rule.W) {
+            $w = U $w0; $prio++
+            $r = $doc.CreateElement('cfRule', $XNS)
+            $r.SetAttribute('type', 'beginsWith'); $r.SetAttribute('dxfId', [string]$ids[$rule.K]); $r.SetAttribute('priority', [string]$prio)
+            $r.SetAttribute('operator', 'beginsWith'); $r.SetAttribute('text', $w)
+            $fo = $doc.CreateElement('formula', $XNS); $fo.InnerText = 'LEFT(' + $col + $firstRow + ',LEN("' + $w + '"))="' + $w + '"'
+            [void]$r.AppendChild($fo); [void]$cf.AppendChild($r)
+        } }
+        $order = 'sheetData', 'sheetCalcPr', 'sheetProtection', 'protectedRanges', 'scenarios', 'autoFilter', 'sortState', 'dataConsolidate', 'customSheetViews', 'mergeCells', 'phoneticPr', 'conditionalFormatting'
+        $last = $null
+        foreach ($ch in $ws.ChildNodes) { if ($ch.NodeType -eq 'Element' -and ($order -contains $ch.LocalName)) { $last = $ch } }
+        if ($last) { [void]$ws.InsertAfter($cf, $last) } else { [void]$ws.AppendChild($cf) }
+    } catch { Write-Log WARN "excel: state colours were not added: $($_.Exception.Message)" }
 }
 
 function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$created) {
@@ -415,6 +469,7 @@ function Write-InventoryRow($file, $headers, $builtin, $rec, $none, [bool]$creat
                 $cn.SetAttribute('width', $(if ($cc -eq $Cm.Rpt) { '22' } else { '18' })); $cn.SetAttribute('customWidth', '1'); [void]$colsN.AppendChild($cn)
             }
         }
+        Add-StateFormatting $zip $doc $ns ([int]$Cm.State) ($hdrN + 1)
         Test-InventoryDoc $zip $doc $ns $data $row $Cm.Pc ([string]$rec.Pc)
         Write-ZipXml $zip $sp $doc
     } finally { $zip.Dispose(); $fs.Dispose() }
@@ -435,7 +490,7 @@ function Update-InventoryXlsx($path, $rec, $none) {
         return ('created file; ' + [string]$rr[-1])
     }
     $probe = [IO.File]::Open($path, 'Open', 'ReadWrite', 'None'); $probe.Dispose()      # throws if the file is open in Excel
-    $bk = Join-Path $OutDir '_backup'
+    $bk = Join-Path $SvcDir 'backup'
     New-Item -ItemType Directory -Force $bk | Out-Null
     Copy-Item -LiteralPath $path (Join-Path $bk ([IO.Path]::GetFileNameWithoutExtension($path) + '_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.xlsx')) -Force
     Get-ChildItem $bk -Filter '*.xlsx' | Sort-Object LastWriteTime -Descending | Select-Object -Skip ([int](Cfg 'backup.keep' 10)) | Remove-Item -Force -ErrorAction SilentlyContinue

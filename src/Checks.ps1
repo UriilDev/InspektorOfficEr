@@ -53,7 +53,7 @@ function Get-OsSupportCheck($os) {
         return (New-Check 'bad' (((U '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u044d\u0442\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 Windows \u0437\u0430\u043a\u043e\u043d\u0447\u0438\u043b\u0430\u0441\u044c') + $when + ': ') + $cap) $act (U '\u041e\u0421 \u0431\u0435\u0437 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438'))
     }
     if ($days -le $warnDays) {
-        return (New-Check 'warn' (((U '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u044d\u0442\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 Windows \u0437\u0430\u043a\u043e\u043d\u0447\u0438\u0442\u0441\u044f ') + $end.ToString('dd.MM.yyyy') + (U ' (\u0447\u0435\u0440\u0435\u0437 ') + $days + (U ' \u0434\u043d.): ')) + $cap) $act (U '\u041a\u043e\u043d\u0435\u0446 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438 \u041e\u0421'))
+        return (New-Check 'warn' (((U '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u044d\u0442\u043e\u0439 \u0432\u0435\u0440\u0441\u0438\u0438 Windows \u0437\u0430\u043a\u043e\u043d\u0447\u0438\u0442\u0441\u044f ') + $end.ToString('dd.MM.yyyy') + (U ' (\u0447\u0435\u0440\u0435\u0437 ') + $days + (U ' \u0434\u043d.): ')) + $cap) $act (U '\u0421\u043a\u043e\u0440\u043e \u043a\u043e\u043d\u0435\u0446 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0438 \u041e\u0421'))
     }
     New-Check 'ok' ((U '\u041e\u0421 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044f \u0434\u043e ') + $end.ToString('dd.MM.yyyy') + ': ' + $cap)
 }
@@ -83,10 +83,10 @@ function Get-AvCheck {
         $c = New-Check 'warn' (U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u043d\u0435 \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d') (U '\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443 \u0432\u0440\u0443\u0447\u043d\u0443\u044e (\u043d\u0430 \u0441\u0435\u0440\u0432\u0435\u0440\u0430\u0445 \u0438 \u0441 \u043d\u0435\u0441\u0442\u0430\u043d\u0434\u0430\u0440\u0442\u043d\u043e\u0439 \u0437\u0430\u0449\u0438\u0442\u043e\u0439 \u0441\u0432\u0435\u0434\u0435\u043d\u0438\u044f \u043c\u043e\u0433\u0443\u0442 \u0431\u044b\u0442\u044c \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b)') (U '\u041d\u0435\u0442 \u0430\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441\u0430')
     }
     elseif (-not $act.Count) {
-        $c = New-Check 'bad' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u0435\u0441\u0442\u044c, \u043d\u043e \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d: ') + ($names -join ', ')) (U '\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443') (U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u0432\u044b\u043a\u043b')
+        $c = New-Check 'bad' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u0435\u0441\u0442\u044c, \u043d\u043e \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d: ') + ($names -join ', ')) (U '\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0437\u0430\u0449\u0438\u0442\u0443') (U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441 \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d')
     }
     elseif (@($act | Where-Object { $_.Old }).Count) {
-        $c = New-Check 'warn' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441: ') + ($names -join ', ') + (U ' \u2014 \u0431\u0430\u0437\u044b \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438')) (U '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0430\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441\u043d\u044b\u0435 \u0431\u0430\u0437\u044b') (U '\u0411\u0430\u0437\u044b \u0410\u0412 \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438')
+        $c = New-Check 'warn' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441: ') + ($names -join ', ') + (U ' \u2014 \u0431\u0430\u0437\u044b \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438')) (U '\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0430\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441\u043d\u044b\u0435 \u0431\u0430\u0437\u044b') (U '\u0411\u0430\u0437\u044b \u0430\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441\u0430 \u0443\u0441\u0442\u0430\u0440\u0435\u043b\u0438')
     }
     else { $c = New-Check 'ok' ((U '\u0410\u043d\u0442\u0438\u0432\u0438\u0440\u0443\u0441: ') + ($names -join ', ')) }
     [pscustomobject]@{ Check = $c; Third = $third }
@@ -111,9 +111,9 @@ function Get-FirewallCheck([bool]$thirdPartyAv) {
     }
     if (-not $off.Count) { return (New-Check 'ok' (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows \u0432\u043a\u043b\u044e\u0447\u0451\u043d')) }
     $txt = (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d \u0432 \u043f\u0440\u043e\u0444\u0438\u043b\u044f\u0445: ') + ($off -join ', ')
-    if ($thirdPartyAv) { return (New-Check 'warn' ($txt + (U ' (\u0432\u043e\u0437\u043c\u043e\u0436\u043d\u043e, \u0435\u0433\u043e \u0437\u0430\u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0442\u043e\u0440\u043e\u043d\u043d\u044f\u044f \u0437\u0430\u0449\u0438\u0442\u0430)')) (U '\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c, \u0447\u0442\u043e \u0441\u0435\u0442\u0435\u0432\u0443\u044e \u0437\u0430\u0449\u0438\u0442\u0443 \u0432\u0435\u0434\u0451\u0442 \u0434\u0440\u0443\u0433\u0430\u044f \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0430') (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 \u0432\u044b\u043a\u043b')) }
+    if ($thirdPartyAv) { return (New-Check 'warn' ($txt + (U ' (\u0432\u043e\u0437\u043c\u043e\u0436\u043d\u043e, \u0435\u0433\u043e \u0437\u0430\u043c\u0435\u043d\u044f\u0435\u0442 \u0441\u0442\u043e\u0440\u043e\u043d\u043d\u044f\u044f \u0437\u0430\u0449\u0438\u0442\u0430)')) (U '\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c, \u0447\u0442\u043e \u0441\u0435\u0442\u0435\u0432\u0443\u044e \u0437\u0430\u0449\u0438\u0442\u0443 \u0432\u0435\u0434\u0451\u0442 \u0434\u0440\u0443\u0433\u0430\u044f \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0430') (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d')) }
     $lvl = $(if ($off.Count -ge $total) { 'bad' } else { 'warn' })
-    New-Check $lvl $txt (U '\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0431\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows') (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 \u0432\u044b\u043a\u043b')
+    New-Check $lvl $txt (U '\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u0431\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 Windows') (U '\u0411\u0440\u0430\u043d\u0434\u043c\u0430\u0443\u044d\u0440 \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d')
 }
 
 function Get-SysDiskCheck($v) {
@@ -121,8 +121,8 @@ function Get-SysDiskCheck($v) {
     $pct = [int][math]::Round(100 * $v.FreeSpace / $v.Size); $gb = [math]::Round($v.FreeSpace / 1GB, 1)
     $txt = ((U '\u0421\u0432\u043e\u0431\u043e\u0434\u043d\u043e \u043d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435: {0} \u0413\u0411 ({1}%)') -f $gb, $pct)
     $act = U '\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0434\u0438\u0441\u043a (\u0432\u0440\u0435\u043c\u0435\u043d\u043d\u044b\u0435 \u0444\u0430\u0439\u043b\u044b, \u043d\u0435\u043d\u0443\u0436\u043d\u044b\u0435 \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u044b) \u0438\u043b\u0438 \u0437\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u043d\u0430 \u0431\u043e\u043b\u044c\u0448\u0438\u0439'
-    if ($pct -lt $thrBad -or $gb -lt $gbBad) { return (New-Check 'bad' ((U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a \u043f\u043e\u0447\u0442\u0438 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d. ') + $txt) $act ((U '\u0414\u0438\u0441\u043a ') + $pct + '%')) }
-    if ($pct -lt $thrWarn) { return (New-Check 'warn' ((U '\u041d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435 \u043c\u0430\u043b\u043e \u043c\u0435\u0441\u0442\u0430. ') + $txt) $act ((U '\u0414\u0438\u0441\u043a ') + $pct + '%')) }
+    if ($pct -lt $thrBad -or $gb -lt $gbBad) { return (New-Check 'bad' ((U '\u0421\u0438\u0441\u0442\u0435\u043c\u043d\u044b\u0439 \u0434\u0438\u0441\u043a \u043f\u043e\u0447\u0442\u0438 \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d. ') + $txt) $act ((U '\u041c\u0430\u043b\u043e \u043c\u0435\u0441\u0442\u0430 \u043d\u0430 ') + $env:SystemDrive + ' (' + $pct + '% ' + (U '\u0441\u0432\u043e\u0431.') + ')')) }
+    if ($pct -lt $thrWarn) { return (New-Check 'warn' ((U '\u041d\u0430 \u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u043c \u0434\u0438\u0441\u043a\u0435 \u043c\u0430\u043b\u043e \u043c\u0435\u0441\u0442\u0430. ') + $txt) $act ((U '\u041c\u0430\u043b\u043e \u043c\u0435\u0441\u0442\u0430 \u043d\u0430 ') + $env:SystemDrive + ' (' + $pct + '% ' + (U '\u0441\u0432\u043e\u0431.') + ')')) }
     New-Check 'ok' $txt
 }
 
@@ -130,11 +130,11 @@ function Get-QuickChecks($os, $up, [double]$ramTotal) {
     $r = @()
     $upWarn = [int](Cfg 'checks.uptimeDaysWarn' 30)
     if ($up.TotalDays -gt 20000) { Write-Log DEBUG 'report: boot time unknown, uptime check skipped' }
-    elseif ($up.Days -gt $upWarn) { $r += (New-Check 'warn' ((U '\u041a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0430\u043b\u0441\u044f ') + $up.Days + (U ' \u0434\u043d.')) (U '\u041f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u041f\u041a (\u043f\u0440\u0438\u043c\u0435\u043d\u044f\u0442\u0441\u044f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f, \u043e\u0441\u0432\u043e\u0431\u043e\u0436\u0434\u0430\u0435\u0442\u0441\u044f \u043f\u0430\u043c\u044f\u0442\u044c)') ((U '\u0410\u043f\u0442\u0430\u0439\u043c ') + $up.Days + (U '\u0434'))) }
+    elseif ($up.Days -gt $upWarn) { $r += (New-Check 'warn' ((U '\u041a\u043e\u043c\u043f\u044c\u044e\u0442\u0435\u0440 \u043d\u0435 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0436\u0430\u043b\u0441\u044f ') + $up.Days + (U ' \u0434\u043d.')) (U '\u041f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u041f\u041a (\u043f\u0440\u0438\u043c\u0435\u043d\u044f\u0442\u0441\u044f \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f, \u043e\u0441\u0432\u043e\u0431\u043e\u0436\u0434\u0430\u0435\u0442\u0441\u044f \u043f\u0430\u043c\u044f\u0442\u044c)') ((U '\u0411\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 ') + $up.Days + (U ' \u0434\u043d.'))) }
     else { $r += (New-Check 'ok' ((U '\u0412\u0440\u0435\u043c\u044f \u0440\u0430\u0431\u043e\u0442\u044b \u0431\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438: ') + $up.Days + (U ' \u0434\u043d.'))) }
     $ramWarn = [double](Cfg 'checks.ramGbWarn' 4)
     if ($ramTotal -le 0) { Write-Log DEBUG 'report: RAM size unknown, RAM check skipped' }
-    elseif ($ramTotal -lt $ramWarn) { $r += (New-Check 'warn' ((U '\u041c\u0430\u043b\u043e \u043e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438: ') + $ramTotal + (U ' \u0413\u0411')) (U '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c, \u0435\u0441\u043b\u0438 \u041f\u041a \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e') ((U '\u041e\u0417\u0423 ') + $ramTotal + (U '\u0413\u0411'))) }
+    elseif ($ramTotal -lt $ramWarn) { $r += (New-Check 'warn' ((U '\u041c\u0430\u043b\u043e \u043e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438: ') + $ramTotal + (U ' \u0413\u0411')) (U '\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043f\u0430\u043c\u044f\u0442\u044c, \u0435\u0441\u043b\u0438 \u041f\u041a \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u043c\u0435\u0434\u043b\u0435\u043d\u043d\u043e') ((U '\u041c\u0430\u043b\u043e \u041e\u0417\u0423: ') + $ramTotal + (U ' \u0413\u0411'))) }
     else { $r += (New-Check 'ok' ((U '\u041e\u043f\u0435\u0440\u0430\u0442\u0438\u0432\u043d\u043e\u0439 \u043f\u0430\u043c\u044f\u0442\u0438 \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e: ') + $ramTotal + (U ' \u0413\u0411'))) }
     $oc = Get-OsSupportCheck $os; if ($oc) { $r += $oc }
     $av = Get-AvCheck; $r += $av.Check
@@ -167,24 +167,33 @@ function Get-CheckLead($checks) {
     '<p class="lead ' + $lv + '">' + (Enc $t) + '</p>'
 }
 
-# ---- short state text for the Excel "state" column: real findings, as brief as possible ----
-function Get-DefaultState { [string](Cfg 'excel.defaultState' (U '\u0425\u043e\u0440\u043e\u0448\u0435\u0435')) }
+# ---- state column: three categories, short real reasons ----
+#   red    "Danger: ..."      - something dangerous (nearly full system disk, unsupported OS, no / disabled antivirus, ...)
+#   yellow "Tolerable: ..."   - not great, but it can be lived with (little free space, long uptime, little RAM, ...)
+#   green  "No problems"      - nothing found
+# The reason always says WHAT it is (low free space on the system drive, low RAM), so it cannot be mistaken for disk health.
+function Get-StateLabel([string]$level) {
+    switch ($level) { 'bad' { U '\u041e\u043f\u0430\u0441\u043d\u043e' } 'warn' { U '\u0422\u0435\u0440\u043f\u0438\u043c\u043e' } default { U '\u041d\u0435\u0442 \u043f\u0440\u043e\u0431\u043b\u0435\u043c' } }
+}
+function Get-DefaultState { [string](Cfg 'excel.defaultState' (Get-StateLabel 'ok')) }
 function Get-StateSummary($checks) {
-    $maxItems = [int](Cfg 'excel.stateMaxItems' 3)
+    $maxItems = [Math]::Max(1, [int](Cfg 'excel.stateMaxItems' 2))
     $bad  = @($checks | Where-Object { $_.L -eq 'bad'  -and $_.S } | ForEach-Object { $_.S })
     $warn = @($checks | Where-Object { $_.L -eq 'warn' -and $_.S } | ForEach-Object { $_.S })
     $all  = @($bad + $warn)
     if (-not $all.Count) { return (Get-DefaultState) }
-    $prefix = if ($bad.Count) { (U '\u041f\u043b\u043e\u0445\u043e\u0435:') } else { (U '\u0412\u043d\u0438\u043c\u0430\u043d\u0438\u0435:') }
-    $shown = @($all | Select-Object -First $maxItems)
-    $txt = $prefix + ' ' + ($shown -join ', ')
+    $label = if ($bad.Count) { Get-StateLabel 'bad' } else { Get-StateLabel 'warn' }
+    $txt = $label + ': ' + ((@($all | Select-Object -First $maxItems)) -join ', ')
     if ($all.Count -gt $maxItems) { $txt += ' +' + ($all.Count - $maxItems) }
     $txt
 }
-# true when the text in the cell was produced by this tool (so it may be refreshed); a hand-written note is never replaced
+# true when the cell text was produced by this tool (new or legacy wording) and may be refreshed; a hand-written note is never replaced
 function Test-AutoState([string]$s) {
     if (-not $s) { return $true }
     $s = $s.Trim()
     if ($s -ieq (Get-DefaultState)) { return $true }
-    $s.StartsWith((U '\u041f\u043b\u043e\u0445\u043e\u0435:')) -or $s.StartsWith((U '\u0412\u043d\u0438\u043c\u0430\u043d\u0438\u0435:'))
+    foreach ($w in @((Get-StateLabel 'bad'), (Get-StateLabel 'warn'), (Get-StateLabel 'ok'), (U '\u041f\u043b\u043e\u0445\u043e\u0435'), (U '\u0412\u043d\u0438\u043c\u0430\u043d\u0438\u0435'), (U '\u0425\u043e\u0440\u043e\u0448\u0435\u0435'))) {
+        if ($s -ieq $w -or $s.StartsWith($w + ':')) { return $true }
+    }
+    $false
 }

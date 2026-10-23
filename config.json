@@ -1,6 +1,7 @@
 {
   "paths": {
     "reportsDir": "Raports",
+    "serviceDir": "Service",
     "passportsDir": "Passports",
     "workbook": ""
   },
@@ -35,10 +36,10 @@
       "Серийный номер",
       "Модель"
     ],
-    "defaultState": "Хорошее",
+    "defaultState": "Нет проблем",
     "reportLabel": "Отчёт",
     "labelDateFormat": "yyyy-MM-dd",
-    "stateMaxItems": 3
+    "stateMaxItems": 2
   },
   "remoteAccessDetect": {
     "extraConfigDirsA": [],

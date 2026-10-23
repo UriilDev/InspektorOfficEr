@@ -190,9 +190,9 @@ function Get-RemoteIdB {
     $why = @(Test-AppPresent $B.ProcPat)
     if ($why.Count) {
         $script:Src.RemoteB = 'present, but no ID found: ' + ($why -join ' ; ')
-        Write-Host '  Remote access tool B is present, but its ID was not found; search log: Raports\_remote_search.txt' -ForegroundColor Yellow
+        Write-Host '  Remote access tool B is present, but its ID was not found; search log: Service\remote_search.txt' -ForegroundColor Yellow
         foreach ($w in $why) { [void]$log.Add($w) }
-        try { $log | Out-File (Join-Path $OutDir '_remote_search.txt') -Encoding utf8 } catch { }
+        try { $log | Out-File (Join-Path $SvcDir 'remote_search.txt') -Encoding utf8 } catch { }
         return $NoId
     }
     return $NO

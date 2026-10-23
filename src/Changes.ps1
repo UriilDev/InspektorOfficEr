@@ -1,5 +1,5 @@
-# ===================== CHANGES SINCE THE PREVIOUS REPORT OF THIS PC (snapshot in Raports\_state\<PC>.json) =====================
-function Get-SnapshotFile { Join-Path (Join-Path $OutDir '_state') ((([string]$env:COMPUTERNAME) -replace '[^\w\.-]', '_') + '.json') }
+# ===================== CHANGES SINCE THE PREVIOUS REPORT OF THIS PC (snapshot in Service\state\<PC>.json) =====================
+function Get-SnapshotFile { Join-Path (Join-Path $SvcDir 'state') ((([string]$env:COMPUTERNAME) -replace '[^\w\.-]', '_') + '.json') }
 
 function Read-Snapshot {
     $f = Get-SnapshotFile

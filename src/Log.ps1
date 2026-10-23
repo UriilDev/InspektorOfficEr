@@ -104,7 +104,7 @@ function Get-EnvironmentInfo {
 }
 
 function Save-DiagnoseLog([string]$dir) {
-    $d = Join-Path $dir '_debug'
+    $d = Join-Path $dir 'debug'
     New-Item -ItemType Directory -Force $d | Out-Null
     $pc = $env:COMPUTERNAME; if (-not $pc) { $pc = [Environment]::MachineName }
     $f = Join-Path $d ('diagnose_{0}_{1}.txt' -f $pc, (Get-Date -Format 'yyyyMMdd_HHmmss'))

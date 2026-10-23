@@ -12,7 +12,7 @@ function Find-XlsxPath {
 }
 
 function Save-PendingRow($rec) {
-    $f = Join-Path $OutDir '_pending_rows.csv'
+    $f = Join-Path $SvcDir 'pending_rows.csv'
     $isNew = -not (Test-Path $f)
     $esc = { param($s) '"' + ([string]$s).Replace('"', '""') + '"' }
     $line = (@($rec.Floor, $rec.Room, $rec.Place, $rec.User, $rec.RemoteA, $rec.RemoteB, $rec.State, $rec.Disk, $rec.Pc, $rec.Serial, $rec.Model, (Get-Date -Format 'yyyy-MM-dd HH:mm')) | ForEach-Object { & $esc $_ }) -join ';'
@@ -52,7 +52,7 @@ function Invoke-Inventory {
             break
         }
     }
-    try { $rec | ConvertTo-Json | Out-File (Join-Path $OutDir '_last_inventory.json') -Encoding utf8 } catch { }      # after the report link is known
+    try { $rec | ConvertTo-Json | Out-File (Join-Path $SvcDir 'last_inventory.json') -Encoding utf8 } catch { }      # after the report link is known
     try {
         $res = Update-InventoryXlsx $xl $rec $NO
         Write-Host "  Excel     : $res  [$xl]" -ForegroundColor Green
